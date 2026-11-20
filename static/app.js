@@ -88,7 +88,7 @@ const ST = ['open', 'in_progress', 'blocked', 'done'];
 const RES = {
   tasks:   { noun: 'task', title: r => r.title, sub: r => [r.department, r.owner].filter(Boolean).join(' · ') || 'Unassigned', status: 'status', statuses: ST, drag: true, date: 'due_date', priority: 'priority', views: ['board', 'cards', 'table'] },
   contracts: { noun: 'contract', title: r => r.contract, sub: r => [r.counterparty, r.owner].filter(Boolean).join(' · '), body: r => r.obligation, status: 'status', statuses: ST, drag: true, date: 'due_date', views: ['board', 'cards', 'table'] },
-  approvals: { noun: 'request', title: r => r.title, sub: r => `${person(r.requester)} → ${[r.approver, r.second_approver].filter(Boolean).map(person).join(' → ')}`, body: r => r.rationale, status: 'status', statuses: ['pending', 'approved', 'rejected'], money: r => [r.amount, r.currency], chips: r => [r.category, r.steps && r.steps.length > 1 ? r.progress : ''], views: ['board', 'cards', 'table'] },
+  approvals: { noun: 'request', title: r => r.title, sub: r => `${person(r.requester)} → ${[r.approver, r.second_approver].filter(Boolean).map(person).join(' → ')}`, body: r => r.rationale, status: 'status', statuses: ['pending', 'approved', 'rejected'], money: r => [r.amount, r.currency], chips: r => [r.category, r.steps && r.steps.length > 1 ? r.progress : '', r.covering ? 'covering for ' + person(r.awaiting) : ''], views: ['board', 'cards', 'table'] },
   recurring_tasks: { noun: 'template', title: r => r.title, sub: r => [r.department, r.owner].filter(Boolean).join(' · ') || 'Unassigned', status: 'active', priority: 'priority', chips: r => [r.frequency, 'next ' + r.next_due], views: ['cards', 'table'] },
   quotations: { noun: 'quote', title: r => r.item, sub: r => `${r.rfq} · ${r.supplier}`, body: r => r.terms, money: r => [r.unit_price, r.currency + ' / unit'], chips: r => ['qty ' + r.quantity, r.lead_days ? r.lead_days + 'd lead' : ''], views: ['cards', 'table'] },
   tariffs: { noun: 'rate', title: r => r.service, sub: r => 'Customer: ' + (r.customer || '*'), money: r => [r.rate, `${r.currency || ''} / ${r.unit || 'unit'}`], chips: r => [r.effective_from ? 'from ' + r.effective_from : ''], views: ['cards', 'table'] },
@@ -213,6 +213,7 @@ function route() {
 }
 async function render(key) {
   active = key;
+  document.body.dataset.rendered = '';
   const [title, desc] = PAGES[key];
   document.title = `${title} · Automation OS`;
   $('#title').textContent = title; $('#subtitle').textContent = desc;
@@ -228,6 +229,7 @@ async function render(key) {
     else if (key === 'users') await usersView();
     else await records(key);
   } catch (e) { setBody(empty('Something went wrong', e.message)); }
+  document.body.dataset.rendered = key;   // lets tests (and anything else) know the page has finished drawing
   refreshBadges();
 }
 
@@ -338,7 +340,7 @@ async function runBulk(action) {
 /* ---------- records (board / cards / table) ---------- */
 function stepsHtml(r) {
   if (!r.steps || r.steps.length < 2) return '';
-  return `<div class="steps2">${r.steps.map(s => `<div class="st ${esc(s.status)}"><span class="n">${s.stage}</span><span><b>${esc(person(s.approver))}</b><small>${s.status === 'pending' ? 'waiting' : esc(s.status)}${s.decided_by && s.decided_by !== person(s.approver) ? ' · by ' + esc(s.decided_by) : ''}</small></span></div>`).join('')}</div>`;
+  return `<div class="steps2">${r.steps.map(s => `<div class="st ${esc(s.status)}"><span class="n">${s.stage}</span><span><b>${esc(person(s.approver))}</b><small>${s.status === 'pending' ? 'waiting' : esc(s.status)}${s.decided_by && (s.decided_by !== person(s.approver) || s.acting_for) ? ' · by ' + esc(s.decided_by) + (s.acting_for ? ' (covering for ' + esc(person(s.acting_for)) + ')' : '') : ''}</small></span></div>`).join('')}</div>`;
 }
 const approvalEditable = r => r.status === 'pending' && !(r.steps || []).some(s => s.status !== 'pending');
 function cardHtml(key, r, cfg) {
@@ -735,6 +737,9 @@ function applyChrome() {
   if (!ME.accounts && store.get('aos-banner-off', '') !== '1') {
     b.innerHTML = '<span><b>Single-user mode.</b> Anyone who opens this app has full access, and approvals are not tied to a person.</span><span class="row"><button class="btn sm" data-act="setup">Set up accounts</button><button class="btn sm" data-act="hidebanner">Dismiss</button></span>';
     b.classList.remove('hidden');
+  } else if (ME.accounts && ME.user && ME.user.delegate_to) {
+    b.innerHTML = `<span><b>You are out of office.</b> ${esc(person(ME.user.delegate_to))} is covering your approvals until ${esc(ME.user.delegate_until)}.</span><span class="row"><button class="btn sm" data-act="account">Manage</button></span>`;
+    b.classList.remove('hidden');
   } else b.classList.add('hidden');
   nav();
 }
@@ -748,6 +753,7 @@ async function start() {
 }
 function showLogin() {
   READY = false;
+  document.body.dataset.rendered = '';
   NOTES = []; seenKeys = null; PEOPLE = []; paintBell();
   closeLayer();
   const a = $('#auth');
@@ -788,10 +794,20 @@ function openChangePassword() {
     closeLayer(); msg('Password updated. Other devices were signed out.');
   });
 }
+function awayHtml() {
+  const u = ME.user;
+  const on = u.delegate_to && u.delegate_until;
+  const options = PEOPLE.filter(p => p.can_decide && p.username.toLowerCase() !== u.username.toLowerCase())
+    .map(p => `<option value="${esc(p.username)}">${esc(p.display_name)} (@${esc(p.username)})</option>`).join('');
+  const nextWeek = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  return `<div class="field"><label>Out of office</label>${on
+    ? `<div class="note"><b>${esc(person(u.delegate_to))}</b> is covering your approvals until <b>${esc(u.delegate_until)}</b>.</div><div class="acts"><button type="button" class="btn" data-act="endaway">End cover now</button></div>`
+    : `<div class="note">Going away? Hand your approvals to a colleague. They can decide requests assigned to you until the date you choose, then it ends by itself.</div><select id="aw_delegate" aria-label="Who covers for you"><option value="">Choose a colleague…</option>${options}</select><input id="aw_until" type="date" value="${nextWeek}" min="${isoToday()}" aria-label="Back on"><div class="acts"><button type="button" class="btn" data-act="startaway">Start cover</button></div>`}</div>`;
+}
 function openAccount() {
   if (!ME.accounts) return openSetup();
   const u = ME.user;
-  drawer('Account', `<div class="stack"><div class="field"><label>Name</label><div><b>${esc(u.display_name)}</b></div></div><div class="field"><label>Username</label><div>@${esc(u.username)}</div></div><div class="field"><label>Role</label><div><span class="badge blue">${esc(u.role)}</span></div></div><div class="acts"><button type="button" class="btn" data-act="changepw">Change password</button><button type="button" class="btn bad" data-act="logoutall">Sign out of all devices</button></div><div class="note">Sessions last 12 hours. Approvals assigned to “${esc(u.display_name)}” or “${esc(u.username)}” show up as yours.</div></div>`,
+  drawer('Account', `<div class="stack"><div class="field"><label>Name</label><div><b>${esc(u.display_name)}</b></div></div><div class="field"><label>Username</label><div>@${esc(u.username)}</div></div><div class="field"><label>Role</label><div><span class="badge blue">${esc(u.role)}</span></div></div>${rank() >= 1 ? awayHtml() : ''}<div class="acts"><button type="button" class="btn" data-act="changepw">Change password</button><button type="button" class="btn bad" data-act="logoutall">Sign out of all devices</button></div><div class="note">Sessions last 12 hours. Approvals assigned to ${u.display_name.toLowerCase() === u.username.toLowerCase() ? `“${esc(u.display_name)}”` : `“${esc(u.display_name)}” or “${esc(u.username)}”`} show up as yours.</div></div>`,
   'Sign out', async () => {
     await api('auth/logout', { method: 'POST', body: '{}' });
     ME.user = null; showLogin();
@@ -856,6 +872,15 @@ document.addEventListener('click', async e => {
   if (act === 'bulkdelete') return runBulk('delete');
   if (act === 'bell') return openNotifications();
   if (act === 'changepw') return openChangePassword();
+  if (act === 'account') return openAccount();
+  if (act === 'startaway' || act === 'endaway') {
+    const start = act === 'startaway';
+    try {
+      await api('auth/delegate', { method: 'POST', body: JSON.stringify(start ? { delegate: $('#aw_delegate').value, until: $('#aw_until').value } : { delegate: '', until: '' }) });
+      await refreshMe(); msg(start ? 'Cover started' : 'Cover ended'); openAccount();
+    } catch (ex) { msg(ex.message); }
+    return;
+  }
   if (act === 'logoutall') {
     if (!confirm('Sign out of every device, including this one?')) return;
     try { await api('auth/logout-all', { method: 'POST', body: '{}' }); closeLayer(); ME.user = null; showLogin(); } catch (ex) { msg(ex.message); }

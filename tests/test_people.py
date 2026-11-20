@@ -31,7 +31,7 @@ class ApproverIdentityTests(PeopleMixin, AppTestCase):
         self.app.update_user(bob['id'], {'active': False})
         listing = self.app.people()
         self.assertEqual({p['username'] for p in listing}, {'ann', 'boss'})
-        self.assertEqual(set(listing[0]), {'username', 'display_name'})
+        self.assertEqual(set(listing[0]), {'username', 'display_name', 'can_decide'})   # no role, hash or id
 
     def test_requester_is_forced_to_the_signed_in_user(self):
         ann = self.user('ann')

@@ -174,6 +174,10 @@ Approvers are chosen from a list of real, active users and stored by username, s
 
 **Waiting on you.** The Approvals tab badge, the dashboard and the Today page show what is assigned to *you*, not every pending request, and the Approval Center has an "awaiting me" filter. An admin's right to step in does not make every request theirs.
 
+### Out-of-office cover
+
+Going away? Open the account menu and choose **Start cover**: pick a colleague (a member or higher) and the date you are back, up to 90 days ahead. Until that date they can decide requests assigned to you, see them under "waiting on you" with a "covering for" label, and get the notifications. The record shows who really decided and for whom, and cover ends by itself. The rules that protect approvals still apply: nobody can decide their own request through cover, and one person still cannot approve two steps of the same request. You can always decide your own requests too, and end cover early.
+
 ### Notifications
 
 The bell in the top bar lists what needs your attention, updated every minute: approvals waiting on you, outcomes of your own requests from the last week, and your tasks and contracts that are overdue or due soon. Requests that sit unanswered longer than the limit set in Automation Center (default 3 days, 0 turns it off) are flagged as stuck for the requester and admins, and show as high priority for the approver. Dismissing hides an alert on that browser only, and a new event such as the next approval step brings it back. Desktop alerts are optional and use the browser's own notification permission; nothing is sent to any outside service.

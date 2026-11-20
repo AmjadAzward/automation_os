@@ -33,8 +33,8 @@ CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS automation_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,started_at TEXT NOT NULL,finished_at TEXT NOT NULL,detected INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL DEFAULT 0,resolved INTEGER NOT NULL DEFAULT 0,trigger TEXT NOT NULL DEFAULT 'manual');
 CREATE TABLE IF NOT EXISTS recurring_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,department TEXT NOT NULL DEFAULT 'General',owner TEXT DEFAULT '',priority TEXT NOT NULL DEFAULT 'medium',frequency TEXT NOT NULL DEFAULT 'weekly',next_due TEXT NOT NULL,active TEXT NOT NULL DEFAULT 'yes',created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS approvals(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Operational',requester TEXT DEFAULT '',approver TEXT DEFAULT '',amount TEXT DEFAULT '0',currency TEXT NOT NULL DEFAULT 'USD',rationale TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'pending',decision_comment TEXT DEFAULT '',created_at TEXT NOT NULL,decided_at TEXT DEFAULT '',second_approver TEXT DEFAULT '');
-CREATE TABLE IF NOT EXISTS approval_steps(id INTEGER PRIMARY KEY AUTOINCREMENT,approval_id INTEGER NOT NULL,stage INTEGER NOT NULL,approver TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',comment TEXT DEFAULT '',decided_by TEXT DEFAULT '',decided_at TEXT DEFAULT '');
-CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE COLLATE NOCASE,display_name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'member',password_hash TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS approval_steps(id INTEGER PRIMARY KEY AUTOINCREMENT,approval_id INTEGER NOT NULL,stage INTEGER NOT NULL,approver TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',comment TEXT DEFAULT '',decided_by TEXT DEFAULT '',decided_at TEXT DEFAULT '',acting_for TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE COLLATE NOCASE,display_name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'member',password_hash TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,delegate_to TEXT NOT NULL DEFAULT '',delegate_until TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL,expires_at REAL NOT NULL,created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date,status);
 CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date,status);
@@ -61,6 +61,9 @@ def migrate(c):
     cols=lambda t:{r[1] for r in c.execute(f'PRAGMA table_info({t})')}
     if 'actor' not in cols('audit'):c.execute("ALTER TABLE audit ADD COLUMN actor TEXT NOT NULL DEFAULT ''")
     if 'second_approver' not in cols('approvals'):c.execute("ALTER TABLE approvals ADD COLUMN second_approver TEXT DEFAULT ''")
+    if 'acting_for' not in cols('approval_steps'):c.execute("ALTER TABLE approval_steps ADD COLUMN acting_for TEXT DEFAULT ''")
+    if 'delegate_to' not in cols('users'):c.execute("ALTER TABLE users ADD COLUMN delegate_to TEXT NOT NULL DEFAULT ''")
+    if 'delegate_until' not in cols('users'):c.execute("ALTER TABLE users ADD COLUMN delegate_until TEXT NOT NULL DEFAULT ''")
     for r in c.execute("SELECT id,approver FROM approvals WHERE status='pending' AND id NOT IN (SELECT approval_id FROM approval_steps)").fetchall():
         c.execute("INSERT INTO approval_steps(approval_id,stage,approver,status) VALUES(?,1,?,'pending')",(r['id'],r['approver']))
 
@@ -256,7 +259,7 @@ def dummy_hash():
     return _DUMMY[0]
 
 def public_user(r):
-    return {'id':r['id'],'username':r['username'],'display_name':r['display_name'],'role':r['role'],'active':bool(r['active']),'created_at':r['created_at']}
+    return {'id':r['id'],'username':r['username'],'display_name':r['display_name'],'role':r['role'],'active':bool(r['active']),'created_at':r['created_at'],'delegate_to':r['delegate_to'] if r['delegate_until']>=today() else '','delegate_until':r['delegate_until'] if r['delegate_until']>=today() else ''}
 
 def user_count():
     with db() as c:return c.execute('SELECT COUNT(*) FROM users').fetchone()[0]
@@ -425,22 +428,25 @@ def decide_approval(ident,decision,comment='',user=None):
             steps=c.execute('SELECT * FROM approval_steps WHERE approval_id=? ORDER BY stage',(ident,)).fetchall()
         current=next((s for s in steps if s['status']=='pending'),None)
         if current is None:raise ValueError('This request has no pending step')
-        who=current['approver']
+        who=current['approver'];acting_for=''
         ids=identities(user)
         if ids is not None:
             who=user['display_name']
-            if user['role']!='admin' and str(current['approver']).strip().lower() not in ids:raise Forbidden(f"This step is assigned to {current['approver']}")
+            assigned=str(current['approver']).strip().lower()
+            covering=assigned not in ids and assigned in delegators_of(user)
+            if user['role']!='admin' and assigned not in ids and not covering:raise Forbidden(f"This step is assigned to {current['approver']}")
+            if covering:acting_for=current['approver']
             if str(row['requester']).strip().lower() in ids:raise Forbidden('You cannot decide your own request')
             if any(str(s['decided_by']).strip().lower() in ids for s in steps if s['status']=='approved'):raise Forbidden('You already approved an earlier step of this request')
         stamp=now()
-        c.execute('UPDATE approval_steps SET status=?,comment=?,decided_by=?,decided_at=? WHERE id=?',(decision,comment,who,stamp,current['id']))
+        c.execute('UPDATE approval_steps SET status=?,comment=?,decided_by=?,decided_at=?,acting_for=? WHERE id=?',(decision,comment,who,stamp,acting_for,current['id']))
         if decision=='rejected':
             c.execute("UPDATE approval_steps SET status='skipped' WHERE approval_id=? AND status='pending'",(ident,))
             final='rejected'
         else:
             final='pending' if any(s['status']=='pending' and s['id']!=current['id'] for s in steps) else 'approved'
         if final!='pending':c.execute('UPDATE approvals SET status=?,decision_comment=?,decided_at=? WHERE id=?',(final,comment,stamp,ident))
-        audit(c,'approval_decision','approvals',{'id':ident,'stage':current['stage'],'decision':decision,'decided_by':who,'request_status':final,'comment':comment})
+        audit(c,'approval_decision','approvals',{'id':ident,'stage':current['stage'],'decision':decision,'decided_by':who,'acting_for':acting_for,'request_status':final,'comment':comment})
     return {'ok':True,'status':final,'stage':current['stage'],'stages':len(steps)}
 
 def approvals_list(user=None):
@@ -449,6 +455,7 @@ def approvals_list(user=None):
     with db() as c:
         for s in c.execute('SELECT * FROM approval_steps ORDER BY approval_id,stage'):steps.setdefault(s['approval_id'],[]).append(dict(s))
     ids=identities(user)
+    cover=delegators_of(user) if ids is not None else set()
     for r in rows:
         st=steps.get(r['id']) or [{'stage':1,'approver':r['approver'],'status':r['status'],'comment':r['decision_comment'],'decided_by':r['approver'] if r['status']!='pending' else '','decided_at':r['decided_at']}]
         current=next((s for s in st if s['status']=='pending'),None) if r['status']=='pending' else None
@@ -458,17 +465,51 @@ def approvals_list(user=None):
         if r['status']!='pending' or current is None:r['can_decide']=False
         elif ids is None:r['can_decide']=True
         else:
-            r['can_decide']=((user['role']=='admin' or str(current['approver']).strip().lower() in ids)
+            r['can_decide']=((user['role']=='admin' or str(current['approver']).strip().lower() in (ids|cover))
                 and str(r['requester']).strip().lower() not in ids
                 and not any(str(s['decided_by']).strip().lower() in ids for s in st if s['status']=='approved'))
         # 'mine' = the current step is assigned to me. An admin's override right (can_decide) does not make every request theirs.
-        r['mine']=bool(r['can_decide'] and (ids is None or str(current['approver']).strip().lower() in ids))
+        r['mine']=bool(r['can_decide'] and (ids is None or str(current['approver']).strip().lower() in (ids|cover)))
+        r['covering']=bool(r['mine'] and ids is not None and str(current['approver']).strip().lower() not in ids)
     return rows
 
 # ---------------------------------------------------------------- people, ownership and notifications
+def delegators_of(user):
+    """Lower-cased usernames and display names of everyone who has currently handed their approvals to this user."""
+    if not user or user.get('open'):return set()
+    out=set()
+    with db() as c:
+        for r in c.execute("SELECT username,display_name FROM users WHERE active=1 AND delegate_to=? COLLATE NOCASE AND delegate_until>=?",(user['username'],today())):
+            out|={r['username'].lower(),str(r['display_name']).strip().lower()}
+    return out
+
+def set_delegation(user,delegate,until):
+    """Out of office: hand my approvals to a colleague until a date (at most 90 days ahead). An empty delegate ends it."""
+    require_account(user)
+    delegate=str(delegate or '').strip()
+    with LOCK,db() as c:
+        if not delegate:
+            c.execute("UPDATE users SET delegate_to='',delegate_until='' WHERE id=?",(user['id'],))
+            audit(c,'delegation_end','users',{'id':user['id']})
+            return {'ok':True,'delegate_to':'','delegate_until':''}
+        target=c.execute('SELECT username,role FROM users WHERE active=1 AND (username=? COLLATE NOCASE OR display_name=? COLLATE NOCASE)',(delegate,delegate)).fetchone()
+        if not target:raise ValueError('The person covering for you must be an active user')
+        if target['username'].lower()==str(user['username']).lower():raise ValueError('You cannot cover for yourself')
+        if RANK[target['role']]<RANK['member']:raise ValueError('The person covering for you needs the member role or higher')
+        until=str(until or '').strip()
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',until):raise ValueError('Choose the date you are back (YYYY-MM-DD)')
+        try:back=datetime.strptime(until,'%Y-%m-%d').date()
+        except ValueError as e:raise ValueError('That is not a real date') from e
+        first=datetime.now().date()
+        if back<first:raise ValueError('The return date cannot be in the past')
+        if back>first+timedelta(days=90):raise ValueError('Cover can last at most 90 days. You can renew it later')
+        c.execute('UPDATE users SET delegate_to=?,delegate_until=? WHERE id=?',(target['username'],until,user['id']))
+        audit(c,'delegation_set','users',{'id':user['id'],'delegate':target['username'],'until':until})
+    return {'ok':True,'delegate_to':target['username'],'delegate_until':until}
+
 def people():
-    """Active users as {username, display_name}; safe to show to every signed-in user."""
-    with db() as c:return [{'username':r['username'],'display_name':r['display_name']} for r in c.execute('SELECT username,display_name FROM users WHERE active=1 ORDER BY display_name COLLATE NOCASE')]
+    """Active users as {username, display_name, can_decide}; safe to show to every signed-in user."""
+    with db() as c:return [{'username':r['username'],'display_name':r['display_name'],'can_decide':RANK[r['role']]>=RANK['member']} for r in c.execute('SELECT username,display_name,role FROM users WHERE active=1 ORDER BY display_name COLLATE NOCASE')]
 
 def canonical_person(name):
     """Map a typed name to the matching active user's username. Usernames never change; display names can."""
@@ -533,7 +574,7 @@ def notifications(user=None):
             late=bool(escalate) and age>=escalate
             if a['mine']:
                 done=sum(1 for s in a['steps'] if s['status']=='approved')
-                add(f"approval:{a['id']}:{done}",'approval','high' if late else 'medium',a['title'],'Waiting for your decision'+(f' · {age} days old' if age else ''),'approvals')
+                add(f"approval:{a['id']}:{done}",'approval','high' if late else 'medium',a['title'],('Covering for '+label(a['awaiting'])+' · waiting for a decision' if a['covering'] else 'Waiting for your decision')+(f' · {age} days old' if age else ''),'approvals')
             elif late and (ids is None or user['role']=='admin' or mine(a['requester'])):
                 add(f"stuck:{a['id']}:{a['awaiting']}",'stuck','high',a['title'],f"Stuck for {age} days with {label(a['awaiting'])}",'approvals')
         elif ids is not None and mine(a['requester']) and a['decided_at'] and _age_days(a['decided_at'])<=7:
@@ -857,6 +898,7 @@ class Handler(BaseHTTPRequestHandler):
                 user=create_user(obj,bootstrap=True);return self.send({'user':user},headers={'Set-Cookie':session_cookie(start_session(user['id']),secure=self.secure())})
             if path=='/api/auth/logout':
                 end_session(self.session_token());return self.send({'ok':True},headers={'Set-Cookie':session_cookie('',0,secure=self.secure())})
+            if path=='/api/auth/delegate':return self.send(set_delegation(self.user,obj.get('delegate',''),obj.get('until','')))
             if path=='/api/bulk':
                 if obj.get('action')=='delete':require_role(self.user,'manager')
                 return self.send(bulk_action(obj.get('table'),obj.get('ids'),obj.get('action'),obj.get('status')))

@@ -20,6 +20,8 @@ Writes must send `Content-Type: application/json` and, if an `Origin` header is 
 
 **Accounts.** `GET /api/auth/me` returns `{accounts, user}`. While no accounts exist the API is open (single-user mode). `POST /api/auth/setup` `{username, display_name, password}` creates the first admin once and signs in. `POST /api/auth/login` `{username, password}` sets an HttpOnly, SameSite=Strict session cookie (12 hours); `POST /api/auth/logout` ends it. Once accounts exist every other API call needs the cookie (401 otherwise, with `login: true`). Passwords must be 10 to 200 characters.
 
+**Out-of-office cover.** `POST /api/auth/delegate` `{delegate, until}` hands the caller's approvals to an active member-or-higher user until `until` (YYYY-MM-DD, today to 90 days ahead; the date itself still counts). An empty `delegate` ends it. `GET /api/auth/me` shows `delegate_to` and `delegate_until` while cover is active. The delegate can decide steps assigned to the caller; the step then records `decided_by` (the delegate) and `acting_for` (the person covered). `GET /api/people` adds `can_decide`, and approvals add `covering`.
+
 **Bulk.** `POST /api/bulk` `{table, ids, action, status?}` with `action` `status` (tasks, contracts, exceptions; member role) or `delete` (tasks, contracts, quotations, tariffs, transactions, recurring_tasks; manager role). 1 to 200 ids; returns `{affected}` and writes one audit entry listing the ids. Approvals are not accepted.
 
 **Self-service.** `POST /api/auth/password` `{current, new}` changes the caller's own password (any role; 400 if the current one is wrong, throttled after repeated failures) and ends every other session. `POST /api/auth/logout-all` ends all of the caller's sessions. Both need an account (not single-user mode).

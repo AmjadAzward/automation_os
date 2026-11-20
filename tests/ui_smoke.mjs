@@ -57,7 +57,11 @@ const send = (method, params = {}) => new Promise(r => { const id = ++seq; pendi
 const ev = async expr => { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || 'eval failed'); return r.result.result.value; };
 const shot = async name => { if (!SHOTS) return; fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, name + '.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).result.data, 'base64')); };
 const waitFor = (expr, ms) => until(() => ev(expr), ms);
-const goto = async hash => { await ev(`location.hash='${hash}'`); await sleep(500); };
+const goto = async hash => {
+  await ev(`location.hash='${hash}'`);
+  await waitFor(`document.body.dataset.rendered === '${hash.replace('#/', '')}'`, 40000);   // the app marks a page as drawn
+  await sleep(150);
+};
 const setVal = (sel, v) => ev(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});e.value=${JSON.stringify(v)};e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
 const click = sel => ev(`document.querySelector(${JSON.stringify(sel)}).click()`);
 const submitDrawer = () => ev(`document.querySelector('#dform').requestSubmit()`);
@@ -167,6 +171,26 @@ try {
   check('outcome message says it was approved', (await text('#notebody')).includes('was approved'));
   await ev(`document.querySelector('[data-act=close]').click()`);
 
+  // ---- out-of-office cover
+  const filed = await api('POST', 'approvals', { title: 'Cover test', approver: 'bob' });     // filed by ann, who is signed in
+  check('requester files a request for bob', filed.status === 200, JSON.stringify(filed));
+  await signOut(); await signIn('bob'); await waitFor(`document.querySelector('#userchip').innerText.includes('Bob')`);
+  await click('#userchip'); await waitFor(`!!document.querySelector('#aw_delegate')`);
+  check('colleague list only offers people who can decide (not viewers or yourself)', await ev(`(() => { const o = [...document.querySelectorAll('#aw_delegate option')].map(x => x.value); return o.includes('cyd') && !o.includes('bob') && !o.includes('vic'); })()`));
+  await setVal('#aw_delegate', 'cyd'); await click('[data-act=startaway]');
+  check('approver can start out-of-office cover', !!(await waitFor(`document.querySelector('#layer')?.innerText.includes('is covering your approvals')`)));
+  await shot('away-drawer');
+  await ev(`document.querySelector('[data-act=close]').click()`);
+  check('banner reminds them while away', !!(await waitFor(`!document.querySelector('#banner').classList.contains('hidden') && document.querySelector('#banner').innerText.includes('out of office')`)));
+  await signOut(); await signIn('cyd'); await waitFor(`document.querySelector('#userchip').innerText.includes('Cyd')`);
+  await goto('#/approvals'); await waitFor(`!!document.querySelector('[data-act=decide]')`);
+  check('the delegate sees the request marked as covering', (await text('#content')).toLowerCase().includes('covering for bob'), (await text('#content')).slice(0, 300));
+  await click('[data-act=decide][data-d=approved]'); await waitFor(`!!document.querySelector('#dform')`); await submitDrawer();
+  check('the delegate can approve it', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Request approved')`)));
+  await sleep(500);
+  const record = (await api('GET', 'approvals')).body.find(a => a.title === 'Cover test');
+  check('the record shows who really decided and for whom', record && record.steps[0].decided_by === 'Cyd' && record.steps[0].acting_for === 'bob', JSON.stringify(record && record.steps));
+
   // ---- viewer is read-only
   await signOut(); await signIn('vic'); await waitFor(`document.querySelector('#userchip').innerText.includes('Vic')`);
   await goto('#/tasks');
@@ -192,6 +216,7 @@ try {
   await waitFor(`document.querySelectorAll('.pickbox').length >= 3`);
   await ev(`[...document.querySelectorAll('.card')].filter(c => /Bulk [AB]/.test(c.innerText)).forEach(c => c.querySelector('.pickbox').click())`);
   check('bulk bar counts the selection', (await text('#bulkbar')).includes('2 selected'), await text('#bulkbar'));
+  await shot('bulkbar');
   await ev(`document.querySelector('#bulkstatus').value = 'done'`); await click('[data-act=bulkstatus]');
   check('bulk status change moves exactly the selected cards', !!(await waitFor(`(() => { const d = document.querySelector('.col[data-s=done]')?.innerText || ''; return d.includes('Bulk A') && d.includes('Bulk B') && !d.includes('Bulk C'); })()`)));
   await click('#pageactions [data-act=selectmode]'); await waitFor(`document.querySelectorAll('.pickbox').length >= 1`);
