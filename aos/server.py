@@ -170,6 +170,7 @@ def main():
     threading.Thread(target=scheduler,daemon=True).start()
     server=ThreadingHTTPServer((config.HOST,config.PORT),Handler)
     if config.HOST not in config.LOOPBACK and not config.AUTH:print('WARNING: listening on a non-local address without AUTOMATION_PASSWORD. Anyone on your network can read and change data.')
+    if config.SCRYPT_N<16384:print('WARNING: AUTOMATION_SCRYPT_N is below the safe default; use it for tests only.')
     print(f'\nAutomation OS running at http://{config.HOST}:{config.PORT}\nPress Ctrl+C to stop. Local only; do NOT expose directly to the internet.\n')
     try:server.serve_forever()
     except KeyboardInterrupt:print('\nStopped.')

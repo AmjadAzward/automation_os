@@ -35,7 +35,7 @@ const results = [];
 const check = (name, ok, extra = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || !extra ? '' : '  -> ' + extra}`); };
 
 const server = spawn(process.platform === 'win32' ? 'python' : 'python3', [path.join(ROOT, 'app.py')], {
-  cwd: ROOT, stdio: 'ignore', env: { ...process.env, AUTOMATION_DB: path.join(tmp, 'ui.sqlite3'), AUTOMATION_PORT: String(PORT) },
+  cwd: ROOT, stdio: 'ignore', env: { ...process.env, AUTOMATION_SCRYPT_N: '16', AUTOMATION_DB: path.join(tmp, 'ui.sqlite3'), AUTOMATION_PORT: String(PORT) },
 });
 const chrome = spawn(browser, ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${path.join(tmp, 'profile')}`, '--window-size=1440,900', ...(process.env.CI ? ['--no-sandbox', '--disable-dev-shm-usage'] : []), 'about:blank'], { stdio: 'ignore' });
 const cleanup = () => { try { server.kill(); } catch {} try { chrome.kill(); } catch {} };

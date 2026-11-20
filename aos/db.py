@@ -40,6 +40,7 @@ def db():
     c.row_factory=sqlite3.Row
     c.execute('PRAGMA foreign_keys=ON')
     c.execute('PRAGMA busy_timeout=15000')
+    c.execute('PRAGMA synchronous=NORMAL')   # with WAL this is crash-safe and avoids a disk sync on every commit
     return c
 
 def migrate(c):
@@ -57,6 +58,7 @@ def migrate(c):
 def init():
     config.DB.parent.mkdir(parents=True,exist_ok=True)
     with db() as c:
+        c.execute('PRAGMA journal_mode=WAL')    # readers no longer block the writer; persists in the database file
         c.executescript(SCHEMA)
         migrate(c)
         for key,value in config.DEFAULT_SETTINGS.items():c.execute('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)',(key,value))

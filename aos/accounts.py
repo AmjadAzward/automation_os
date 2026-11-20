@@ -31,14 +31,18 @@ class Forbidden(Exception):
     """The caller is signed in but not allowed to do this (HTTP 403)."""
 
 def hash_password(password):
-    salt=secrets.token_bytes(16)
-    digest=hashlib.scrypt(password.encode(),salt=salt,n=2**14,r=8,p=1,dklen=32)
-    return f'scrypt${salt.hex()}${digest.hex()}'
+    """scrypt with a random salt. The cost is stored in the hash, so raising it later never locks anyone out."""
+    salt=secrets.token_bytes(16);n=config.SCRYPT_N
+    digest=hashlib.scrypt(password.encode(),salt=salt,n=n,r=8,p=1,dklen=32)
+    return f'scrypt${n}${salt.hex()}${digest.hex()}'
 
 def verify_password(password,stored):
     try:
-        _,salt,digest=stored.split('$')
-        calc=hashlib.scrypt(password.encode(),salt=bytes.fromhex(salt),n=2**14,r=8,p=1,dklen=32)
+        parts=stored.split('$')
+        if len(parts)==4:_,n,salt,digest=parts;n=int(n)
+        else:_,salt,digest=parts;n=2**14            # hashes written before the cost was stored
+        if n<16 or n&(n-1):return False
+        calc=hashlib.scrypt(password.encode(),salt=bytes.fromhex(salt),n=n,r=8,p=1,dklen=32)
         return hmac.compare_digest(calc.hex(),digest)
     except (ValueError,TypeError):return False
 

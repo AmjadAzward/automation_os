@@ -23,6 +23,19 @@ class UserTests(AppTestCase):
         self.assertNotEqual(h, self.app.hash_password(PW))  # unique salt
         self.assertFalse(self.app.verify_password(PW, 'garbage'))
 
+    def test_cost_is_stored_and_legacy_hashes_still_verify(self):
+        import hashlib
+        stored = self.app.hash_password(PW)
+        self.assertEqual(stored.split('$')[1], str(self.app.config.SCRYPT_N))
+        salt = b'0123456789abcdef'
+        legacy = 'scrypt$%s$%s' % (salt.hex(), hashlib.scrypt(PW.encode(), salt=salt, n=2**14, r=8, p=1, dklen=32).hex())
+        self.assertTrue(self.app.verify_password(PW, legacy))          # hashes from before the cost was stored
+        self.assertFalse(self.app.verify_password('some-other-password', legacy))
+
+    def test_a_stored_hash_cannot_ask_for_an_unsafe_cost(self):
+        for bad in ('scrypt$3$00$00', 'scrypt$17$00$00', 'scrypt$0$00$00', 'scrypt$x$00$00'):
+            self.assertFalse(self.app.verify_password(PW, bad))
+
     def test_create_validation(self):
         for bad in ({'username': 'ab', 'password': PW}, {'username': 'has space', 'password': PW}, {'username': 'okname', 'password': 'short'}, {'username': 'okname', 'password': PW, 'role': 'root'}):
             with self.assertRaises(ValueError):

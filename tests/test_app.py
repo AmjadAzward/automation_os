@@ -18,6 +18,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
+os.environ.setdefault('AUTOMATION_SCRYPT_N', '16')   # fast password hashing for tests only
+
+
 def load_app():
     """Import a fresh copy of `app` and the whole `aos` package (config is read once, at import)."""
     for name in [m for m in sys.modules if m == 'app' or m == 'aos' or m.startswith('aos.')]:

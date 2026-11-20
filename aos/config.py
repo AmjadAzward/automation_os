@@ -20,6 +20,12 @@ LOOPBACK=('127.0.0.1','localhost','::1')
 BACKUP_DIR=DB.parent/'backups'
 
 BACKUP_KEEP=14
+def _scrypt_cost():
+    """Password hashing cost. Keep the default in real use; AUTOMATION_SCRYPT_N exists so tests run quickly."""
+    try:n=int(os.getenv('AUTOMATION_SCRYPT_N','16384'))
+    except ValueError:return 16384
+    return n if n>=16 and n&(n-1)==0 else 16384
+SCRYPT_N=_scrypt_cost()
 
 MAX_BODY=3_000_000
 
