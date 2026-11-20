@@ -43,7 +43,7 @@ def db():
     c.execute('PRAGMA busy_timeout=15000')
     return c
 
-DEFAULT_SETTINGS={'task_rule':'1','contract_rule':'1','revenue_rule':'1','auto_resolve':'1','due_days':'14'}
+DEFAULT_SETTINGS={'task_rule':'1','contract_rule':'1','revenue_rule':'1','auto_resolve':'1','due_days':'14','scan_minutes':'5'}
 
 def init():
     DB.parent.mkdir(parents=True,exist_ok=True)
@@ -53,13 +53,14 @@ def init():
 
 def automation_settings():
     with db() as c:values={r['key']:r['value'] for r in c.execute('SELECT key,value FROM settings')}
-    return {**{k:(v=='1' if k!='due_days' else int(v)) for k,v in DEFAULT_SETTINGS.items()},**{k:(v=='1' if k!='due_days' else int(v)) for k,v in values.items() if k in DEFAULT_SETTINGS}}
+    numeric={'due_days','scan_minutes'}
+    return {**{k:(int(v) if k in numeric else v=='1') for k,v in DEFAULT_SETTINGS.items()},**{k:(int(v) if k in numeric else v=='1') for k,v in values.items() if k in DEFAULT_SETTINGS}}
 
 def save_automation_settings(row):
     allowed=set(DEFAULT_SETTINGS);updates={k:row[k] for k in row if k in allowed}
-    if 'due_days' in updates:
-        updates['due_days']=str(min(max(int(updates['due_days']),1),90))
-    for k in allowed-{'due_days'}:
+    if 'due_days' in updates:updates['due_days']=str(min(max(int(updates['due_days']),1),90))
+    if 'scan_minutes' in updates:updates['scan_minutes']=str(min(max(int(updates['scan_minutes']),1),60))
+    for k in allowed-{'due_days','scan_minutes'}:
         if k in updates:updates[k]='1' if bool(updates[k]) else '0'
     with LOCK,db() as c:
         for k,v in updates.items():c.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',(k,str(v)))
@@ -151,6 +152,24 @@ def insights():
         total=c.execute('SELECT COUNT(*) FROM tasks').fetchone()[0]
         recent=[dict(x) for x in c.execute('SELECT action,entity,at FROM audit ORDER BY id DESC LIMIT 6')]
     return {'overdue_tasks':overdue_tasks,'due_soon':due_soon,'high_exceptions':high_exceptions,'completion_rate':round(completed*100/total) if total else 0,'recent':recent}
+
+def attention_queue():
+    today_=today();cutoff=(datetime.now().date()+timedelta(days=7)).isoformat()
+    with db() as c:
+        tasks=[dict(x) for x in c.execute("SELECT id,title,owner,due_date,priority,status FROM tasks WHERE status!='done' AND due_date!='' AND due_date<=? ORDER BY due_date ASC LIMIT 20",(cutoff,))]
+        contracts=[dict(x) for x in c.execute("SELECT id,contract,obligation,owner,due_date,status FROM contracts WHERE status!='done' AND due_date<=? ORDER BY due_date ASC LIMIT 20",(cutoff,))]
+        exceptions=[dict(x) for x in c.execute("SELECT id,kind,entity,details,severity,status,created_at FROM exceptions WHERE status!='done' ORDER BY CASE severity WHEN 'high' THEN 0 ELSE 1 END,id DESC LIMIT 20")]
+    for item in tasks+contracts:item['overdue']=item['due_date']<today_
+    return {'tasks':tasks,'contracts':contracts,'exceptions':exceptions,'generated_at':now()}
+
+def bulk_exception_status(ids,status):
+    if status not in STATUSES:raise ValueError('Invalid status')
+    if not isinstance(ids,list) or not ids or len(ids)>200:raise ValueError('Select 1 to 200 exceptions')
+    clean=[int(x) for x in ids]
+    with LOCK,db() as c:
+        qs=','.join('?' for _ in clean);cur=c.execute(f'UPDATE exceptions SET status=? WHERE id IN ({qs})',(status,*clean))
+        audit(c,'bulk_status_update','exceptions',{'ids':clean,'status':status,'updated':cur.rowcount})
+    return {'ok':True,'updated':cur.rowcount}
 
 def compare_quotes():
     rows=read_table('quotations',3000)
@@ -255,6 +274,7 @@ class Handler(BaseHTTPRequestHandler):
                 data=(ROOT/'static'/'app.js').read_bytes();self.send_response(200);self.send_header('Content-Type','text/javascript; charset=utf-8');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
             if path=='/api/overview':return self.send(overview())
             if path=='/api/insights':return self.send(insights())
+            if path=='/api/attention':return self.send(attention_queue())
             if path=='/api/automation/settings':return self.send(automation_settings())
             if path=='/api/automation/runs':return self.send(automation_runs())
             if path=='/api/comparison':return self.send(compare_quotes())
@@ -273,6 +293,7 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/ai':return self.send(ai(obj.get('prompt','')))
             if path=='/api/import':return self.send(import_csv(obj.get('table'),obj.get('csv')))
             if path=='/api/status':return self.send(update_status(obj.get('table'),int(obj.get('id')),obj.get('status')))
+            if path=='/api/exceptions/bulk':return self.send(bulk_exception_status(obj.get('ids'),obj.get('status')))
             if path.startswith('/api/'):
                 table=path.split('/')[-1]
                 return self.send(add_row(table,obj))
@@ -295,7 +316,7 @@ def scheduler():
     while True:
         try:scan('scheduled')
         except Exception as e:print('Scheduled scan failed:',e)
-        time.sleep(300)
+        time.sleep(automation_settings()['scan_minutes']*60)
 
 if __name__=='__main__':
     init()
