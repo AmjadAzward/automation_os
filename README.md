@@ -47,6 +47,7 @@ The application binds to localhost by default, keeps its database on your machin
 - Press **Ctrl+K** to jump to any page or run an action
 - Light and dark themes, remembered per browser
 - Create and edit records in a slide-in drawer; boards, cards and sortable tables for every list
+- Bulk actions: choose **Select** on a list, tick several records (or Select all shown), then change their status together or delete them. Members can change status; deleting needs the manager role. Approvals are excluded because they have their own rules
 - Tab titles show the current page and the number of items needing attention
 - Fully responsive: on phones a bottom tab bar replaces the top navigation, boards swipe sideways, forms slide up full-screen with 16px inputs, and tap targets are at least 36px
 
@@ -167,6 +168,8 @@ The app starts in **single-user mode**: no sign-in, full access, and a banner of
 
 **Approvals are enforced by identity.** A request has an approver and an optional second approver, who must be three different people. The steps run in order and every step must approve; any rejection ends the request. Only the person assigned to the current step (matched on username or display name) can decide it, nobody can decide their own request, and nobody can approve two steps of the same request. An admin can step in on any step except on a request they made. In Automation Center, an admin can require a second approver above an amount, for example 5,000, and requests above it are refused without one.
 
+Everyone can change their own password from the account menu (top right), which also signs out their other devices, and can sign out of all devices at once. Behind an HTTPS reverse proxy that sends `X-Forwarded-Proto: https`, the session cookie is also marked `Secure`.
+
 Approvers are chosen from a list of real, active users and stored by username, so renaming someone never orphans a request. The requester is always the signed-in user and cannot be spoofed. Only the requester (or an admin) can edit or delete a request, so nobody can quietly swap in a friendlier approver. Requests created before accounts were turned on keep working: their approver names are matched against usernames and display names.
 
 **Waiting on you.** The Approvals tab badge, the dashboard and the Today page show what is assigned to *you*, not every pending request, and the Approval Center has an "awaiting me" filter. An admin's right to step in does not make every request theirs.
@@ -205,6 +208,10 @@ python -m unittest discover -s tests -v
 ```
 
 Tests use a temporary database and never touch your real data.
+
+## Continuous integration
+
+`.github/workflows/tests.yml` runs the backend tests and the browser smoke test on every push and pull request. The backend job is the simpler of the two; the browser job relies on the Chrome that GitHub's Ubuntu runners include.
 
 ## Browser smoke test
 

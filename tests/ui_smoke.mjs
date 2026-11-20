@@ -37,11 +37,11 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log(`${ok ? 
 const server = spawn(process.platform === 'win32' ? 'python' : 'python3', [path.join(ROOT, 'app.py')], {
   cwd: ROOT, stdio: 'ignore', env: { ...process.env, AUTOMATION_DB: path.join(tmp, 'ui.sqlite3'), AUTOMATION_PORT: String(PORT) },
 });
-const chrome = spawn(browser, ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${path.join(tmp, 'profile')}`, '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' });
+const chrome = spawn(browser, ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${path.join(tmp, 'profile')}`, '--window-size=1440,900', ...(process.env.CI ? ['--no-sandbox', '--disable-dev-shm-usage'] : []), 'about:blank'], { stdio: 'ignore' });
 const cleanup = () => { try { server.kill(); } catch {} try { chrome.kill(); } catch {} };
 process.on('exit', cleanup);
 
-async function until(fn, ms = 8000) { const t = Date.now(); while (Date.now() - t < ms) { try { const v = await fn(); if (v) return v; } catch {} await sleep(100); } return null; }
+async function until(fn, ms = 20000) { const t = Date.now(); while (Date.now() - t < ms) { try { const v = await fn(); if (v) return v; } catch {} await sleep(100); } return null; }
 await until(async () => (await fetch(BASE + '/api/health')).ok, 15000) || (console.error('server did not start'), process.exit(2));
 const tabs = await until(async () => { const t = await (await fetch(`http://127.0.0.1:${CDP}/json`)).json(); return t.find(x => x.type === 'page') ? t : null; }, 15000);
 const ws = new WebSocket(tabs.find(t => t.type === 'page').webSocketDebuggerUrl);
@@ -68,6 +68,8 @@ async function signIn(username, password = PW) {
   await waitFor(`!!document.querySelector('#loginForm')`);
   await setVal('#lu', username); await setVal('#lp', password);
   await ev(`document.querySelector('#loginForm').requestSubmit()`);
+  // finished = signed in (login screen hidden) or the error message is showing
+  await waitFor(`document.querySelector('#auth').classList.contains('hidden') || (document.querySelector('#lerr') && !document.querySelector('#lerr').classList.contains('hidden'))`, 40000);
 }
 async function signOut() {
   await click('#userchip'); await waitFor(`!!document.querySelector('#dform')`);
@@ -184,6 +186,27 @@ try {
   await goto('#/audit');
   const audited = await waitFor(`document.querySelector('#content').innerText.includes('by ann') && document.querySelector('#content').innerText.includes('by bob')`);
   check('audit trail records who did what', !!audited, (await text('#content')).slice(0, 200));
+  // ---- bulk actions
+  for (const t of ['Bulk A', 'Bulk B', 'Bulk C']) await api('POST', 'tasks', { title: t });
+  await goto('#/tasks'); await click('#pageactions [data-act=selectmode]');
+  await waitFor(`document.querySelectorAll('.pickbox').length >= 3`);
+  await ev(`[...document.querySelectorAll('.card')].filter(c => /Bulk [AB]/.test(c.innerText)).forEach(c => c.querySelector('.pickbox').click())`);
+  check('bulk bar counts the selection', (await text('#bulkbar')).includes('2 selected'), await text('#bulkbar'));
+  await ev(`document.querySelector('#bulkstatus').value = 'done'`); await click('[data-act=bulkstatus]');
+  check('bulk status change moves exactly the selected cards', !!(await waitFor(`(() => { const d = document.querySelector('.col[data-s=done]')?.innerText || ''; return d.includes('Bulk A') && d.includes('Bulk B') && !d.includes('Bulk C'); })()`)));
+  await click('#pageactions [data-act=selectmode]'); await waitFor(`document.querySelectorAll('.pickbox').length >= 1`);
+  await ev(`window.confirm = () => true; [...document.querySelectorAll('.card')].find(c => c.innerText.includes('Bulk C')).querySelector('.pickbox').click()`);
+  await click('[data-act=bulkdelete]');
+  check('bulk delete removes the selected card only', !!(await waitFor(`!document.body.innerText.includes('Bulk C') && document.body.innerText.includes('Bulk A')`)));
+
+  // ---- self-service: change your own password
+  await click('#userchip'); await waitFor(`!!document.querySelector('[data-act=changepw]')`);
+  await click('[data-act=changepw]'); await waitFor(`!!document.querySelector('#f_current')`);
+  await setVal('#f_current', PW); await setVal('#f_new', 'a-completely-new-passphrase'); await setVal('#f_confirm', 'a-completely-new-passphrase'); await submitDrawer();
+  check('user can change their own password', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Password updated')`)));
+  await signOut(); await signIn('olive', 'a-completely-new-passphrase');
+  check('the new password signs in', !!(await waitFor(`document.querySelector('#userchip')?.innerText.includes('Olive')`)));
+
   // ---- responsive layout: realistic, awkward content at phone, tablet and desktop sizes
   const seed = [
     ['quotations', { rfq: 'RFQ-LONG-REFERENCE-0001', supplier: 'A Very Long Supplier Name Incorporated International', item: 'Heavy duty industrial pallet wrap with an extended description', quantity: 200, unit_price: '3.9', currency: 'USD', lead_days: 9, terms: 'Net 30, FOB destination, 2% early payment discount, subject to quality inspection on arrival' }],

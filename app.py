@@ -343,10 +343,42 @@ def end_session(token):
     if token:
         with LOCK,db() as c:c.execute('DELETE FROM sessions WHERE token_hash=?',(hashlib.sha256(token.encode()).hexdigest(),))
 
-def session_cookie(token,max_age=SESSION_SECONDS):
-    return f'{COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age}'
+def require_account(user):
+    if not user or user.get('open'):raise ValueError('Sign in with an account to do this')
+
+def require_role(user,role):
+    if not user or RANK[user['role']]<RANK[role]:raise Forbidden(f'This needs the {role} role or higher')
+
+def change_password(user,current,new,keep_token=None):
+    """Let people change their own password. Every other session is ended; the one making the change stays signed in."""
+    require_account(user)
+    key=('password',user['id'])
+    throttle_check(key)
+    check_password_rules(new)
+    with LOCK,db() as c:
+        row=c.execute('SELECT * FROM users WHERE id=?',(user['id'],)).fetchone()
+        if not row or not verify_password(str(current),row['password_hash']):
+            throttle_fail(key);raise ValueError('Your current password is not correct')
+        FAILS.pop(key,None)
+        if verify_password(new,row['password_hash']):raise ValueError('Choose a password you are not already using')
+        c.execute('UPDATE users SET password_hash=? WHERE id=?',(hash_password(new),user['id']))
+        keep=hashlib.sha256(keep_token.encode()).hexdigest() if keep_token else ''
+        ended=c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash!=?',(user['id'],keep)).rowcount
+        audit(c,'password_change','users',{'id':user['id'],'other_sessions_ended':ended})
+    return {'ok':True,'ended':ended}
+
+def logout_all(user):
+    require_account(user)
+    with LOCK,db() as c:
+        ended=c.execute('DELETE FROM sessions WHERE user_id=?',(user['id'],)).rowcount
+        audit(c,'logout_all','users',{'id':user['id'],'sessions_ended':ended})
+    return ended
+
+def session_cookie(token,max_age=SESSION_SECONDS,secure=False):
+    return f"{COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age}"+('; Secure' if secure else '')
 
 def required_role(method,path):
+    if path in ('/api/auth/password','/api/auth/logout-all'):return 'viewer'
     if path.startswith('/api/users'):return 'admin'
     if method=='GET':return 'admin' if path in ('/api/backup','/api/backups') else 'viewer'
     if path in ('/api/automation/settings','/api/restore','/api/backups','/api/backups/restore'):return 'admin'
@@ -517,6 +549,25 @@ def notifications(user=None):
     order={'high':0,'medium':1,'low':2}
     items.sort(key=lambda i:(order[i['severity']],i['title'].lower()))
     return items[:50]
+
+BULK_STATUS_TABLES=('tasks','contracts','exceptions')
+BULK_DELETE_TABLES=('tasks','contracts','quotations','tariffs','transactions','recurring_tasks')
+def bulk_action(table,ids,action,status=None):
+    """Change the status of, or delete, many records at once. Approvals are excluded: they have their own rules."""
+    if not isinstance(ids,list) or not 1<=len(ids)<=200:raise ValueError('Select 1 to 200 records')
+    try:clean=sorted({int(i) for i in ids})
+    except (TypeError,ValueError) as e:raise ValueError('Invalid record ids') from e
+    marks=','.join(['?']*len(clean))
+    with LOCK,db() as c:
+        if action=='status':
+            if table not in BULK_STATUS_TABLES or status not in STATUSES:raise ValueError('That status change is not allowed')
+            cur=c.execute(f'UPDATE {table} SET status=? WHERE id IN ({marks})',[status,*clean])
+        elif action=='delete':
+            if table not in BULK_DELETE_TABLES:raise ValueError('These records cannot be deleted in bulk')
+            cur=c.execute(f'DELETE FROM {table} WHERE id IN ({marks})',clean)
+        else:raise ValueError('Unknown bulk action')
+        audit(c,'bulk_'+action,table,{'ids':clean,'affected':cur.rowcount,**({'status':status} if action=='status' else {})})
+    return {'ok':True,'affected':cur.rowcount}
 
 def executive_report():
     today_=today()
@@ -715,6 +766,9 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(e,AuthError):return self.send({'error':str(e),'login':True},401)
         if isinstance(e,Forbidden):return self.send({'error':str(e)},403)
         self.send({'error':str(e)},400 if isinstance(e,(ValueError,sqlite3.IntegrityError)) else 500)
+    def secure(self):
+        """True when a TLS-terminating proxy told us the browser is on HTTPS, so the cookie can be marked Secure."""
+        return (self.headers.get('X-Forwarded-Proto') or '').split(',')[0].strip().lower()=='https'
     def session_token(self):
         morsel=SimpleCookie(self.headers.get('Cookie') or '').get(COOKIE)
         return morsel.value if morsel else None
@@ -798,11 +852,17 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/auth/login':
                 user=authenticate(obj.get('username',''),obj.get('password',''),self.client_address[0]);CTX.actor=user['username']
                 with LOCK,db() as c:audit(c,'login','users',{'username':user['username']})
-                return self.send({'user':user},headers={'Set-Cookie':session_cookie(start_session(user['id']))})
+                return self.send({'user':user},headers={'Set-Cookie':session_cookie(start_session(user['id']),secure=self.secure())})
             if path=='/api/auth/setup':
-                user=create_user(obj,bootstrap=True);return self.send({'user':user},headers={'Set-Cookie':session_cookie(start_session(user['id']))})
+                user=create_user(obj,bootstrap=True);return self.send({'user':user},headers={'Set-Cookie':session_cookie(start_session(user['id']),secure=self.secure())})
             if path=='/api/auth/logout':
-                end_session(self.session_token());return self.send({'ok':True},headers={'Set-Cookie':session_cookie('',0)})
+                end_session(self.session_token());return self.send({'ok':True},headers={'Set-Cookie':session_cookie('',0,secure=self.secure())})
+            if path=='/api/bulk':
+                if obj.get('action')=='delete':require_role(self.user,'manager')
+                return self.send(bulk_action(obj.get('table'),obj.get('ids'),obj.get('action'),obj.get('status')))
+            if path=='/api/auth/password':return self.send(change_password(self.user,obj.get('current',''),obj.get('new',''),self.session_token()))
+            if path=='/api/auth/logout-all':
+                ended=logout_all(self.user);return self.send({'ok':True,'ended':ended},headers={'Set-Cookie':session_cookie('',0,secure=self.secure())})
             if path=='/api/users':return self.send(create_user(obj))
             if path=='/api/scan':return self.send(scan())
             if path=='/api/automation/settings':return self.send(save_automation_settings(obj))

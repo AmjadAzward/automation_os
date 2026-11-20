@@ -308,6 +308,33 @@ async function insightsView() {
     <section class="c s7"><div class="hd"><div><h2>Recent activity</h2><small>Latest recorded changes</small></div><button class="btn sm" data-go="audit">Full history</button></div><div class="tl">${x.recent.map(r => `<div class="fi"><div><b>${esc(human(r.action))} · ${esc(r.entity)}</b><small>${esc(r.at)}</small></div></div>`).join('') || empty('No activity yet')}</div></section></div>`);
 }
 
+/* ---------- bulk selection ---------- */
+const BULK = { tasks: ['status', 'delete'], contracts: ['status', 'delete'], exceptions: ['status'], quotations: ['delete'], tariffs: ['delete'], transactions: ['delete'], recurring_tasks: ['delete'] };
+const bulkOps = key => (BULK[key] || []).filter(o => (o === 'status' ? can.write : can.del));
+let selectMode = false, picked = new Set(), shownIds = [], repaintRecords = null;
+const pickBox = (key, r, cfg) => (selectMode ? `<label class="pick"><input type="checkbox" class="pickbox" data-id="${r.id}" ${picked.has(r.id) ? 'checked' : ''} aria-label="Select ${esc(cfg.title ? cfg.title(r) : r.id)}"></label>` : '');
+function renderBulkBar() {
+  const bar = $('#bulkbar');
+  if (!bar) return;
+  bar.classList.toggle('hidden', !selectMode);
+  const all = $('#pickall'); if (all) all.checked = shownIds.length > 0 && shownIds.every(id => picked.has(id));
+  if (!selectMode) return;
+  const ops = bulkOps(active), n = picked.size;
+  bar.innerHTML = `<b>${n} selected</b><button class="btn sm" data-act="pickall">Select all shown</button>`
+    + (ops.includes('status') ? `<select id="bulkstatus" aria-label="New status">${ST.map(s => `<option value="${s}">${human(s)}</option>`).join('')}</select><button class="btn sm good" data-act="bulkstatus" ${n ? '' : 'disabled'}>Apply</button>` : '')
+    + (ops.includes('delete') ? `<button class="btn sm bad" data-act="bulkdelete" ${n ? '' : 'disabled'}>Delete</button>` : '')
+    + '<button class="btn sm" data-act="selectmode">Done</button>';
+}
+async function runBulk(action) {
+  const ids = [...picked];
+  if (!ids.length) return msg('Select at least one record');
+  const body = { table: active, ids, action };
+  if (action === 'status') body.status = $('#bulkstatus').value;
+  else if (!confirm(`Delete ${ids.length} record${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+  try { const r = await api('bulk', { method: 'POST', body: JSON.stringify(body) }); msg(action === 'status' ? `${r.affected} updated` : `${r.affected} deleted`); render(active); }
+  catch (ex) { msg(ex.message); }
+}
+
 /* ---------- records (board / cards / table) ---------- */
 function stepsHtml(r) {
   if (!r.steps || r.steps.length < 2) return '';
@@ -332,8 +359,8 @@ function cardHtml(key, r, cfg) {
     ? (r.can_decide
       ? `<button class="btn sm good" data-act="decide" data-id="${r.id}" data-d="approved">Approve</button><button class="btn sm bad" data-act="decide" data-id="${r.id}" data-d="rejected">Reject</button>`
       : `<span class="note">Waiting for ${esc(person(r.awaiting || r.approver))}</span>`) : '';
-  return `<article class="card ${pr ? 'e-' + esc(pr) : ''}" data-id="${r.id}" ${movable ? 'draggable="true"' : ''}>
-    <div class="top"><h3>${esc(cfg.title(r))}</h3>${st && !cfg.statuses ? `<span class="badge ${esc(stCls)}">${esc(stLabel)}</span>` : ''}${pr && !cfg.date && key !== 'exceptions' ? `<span class="badge ${esc(pr)}">${esc(pr)}</span>` : ''}${key === 'exceptions' ? `<span class="badge ${esc(pr)}">${esc(pr)}</span>` : ''}</div>
+  return `<article class="card ${pr ? 'e-' + esc(pr) : ''}" data-id="${r.id}" ${movable && !selectMode ? 'draggable="true"' : ''}>
+    <div class="top">${pickBox(key, r, cfg)}<h3>${esc(cfg.title(r))}</h3>${st && !cfg.statuses ? `<span class="badge ${esc(stCls)}">${esc(stLabel)}</span>` : ''}${pr && !cfg.date && key !== 'exceptions' ? `<span class="badge ${esc(pr)}">${esc(pr)}</span>` : ''}${key === 'exceptions' ? `<span class="badge ${esc(pr)}">${esc(pr)}</span>` : ''}</div>
     ${cfg.sub ? `<div class="sub">${esc(cfg.sub(r))}</div>` : ''}
     ${money ? `<div class="money">${num(money[0])} <small>${esc(money[1])}</small></div>` : ''}
     ${body ? `<p class="body">${esc(body)}</p>` : ''}
@@ -348,7 +375,7 @@ function tableHtml(key, rows, cfg, sort) {
   if (!rows.length) return empty('No matching records');
   const keys = Object.keys(rows[0]).filter(k => !HIDE.has(k));
   const acts = !cfg.readonly && (can.write || can.del);
-  return `<div class="tw"><table class="${acts ? 'act' : ''}"><thead><tr>${keys.map(k => `<th data-sort="${k}" title="Sort">${esc(human(k))}${sort && sort.k === k ? `<span class="ar">${sort.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('')}${acts ? '<th>Actions</th>' : ''}</tr></thead><tbody>${rows.map(r => `<tr>${keys.map(k => {
+  return `<div class="tw"><table class="${acts ? 'act' : ''}"><thead><tr>${selectMode ? '<th><input type="checkbox" id="pickall" aria-label="Select all shown"></th>' : ''}${keys.map(k => `<th data-sort="${k}" title="Sort">${esc(human(k))}${sort && sort.k === k ? `<span class="ar">${sort.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('')}${acts ? '<th>Actions</th>' : ''}</tr></thead><tbody>${rows.map(r => `<tr>${selectMode ? `<td><input type="checkbox" class="pickbox" data-id="${r.id}" ${picked.has(r.id) ? 'checked' : ''} aria-label="Select record ${r.id}"></td>` : ''}${keys.map(k => {
     const v = r[k];
     const badge = ['status', 'severity', 'priority'].includes(k) && v;
     return `<td class="${['details', 'title', 'terms', 'obligation', 'rationale', 'decision_comment'].includes(k) ? 'wrap' : ''}">${badge ? `<span class="badge ${esc(v)}">${esc(human(v))}</span>` : esc(typeof v === 'object' && v !== null ? JSON.stringify(v) : v)}</td>`;
@@ -370,6 +397,7 @@ async function records(key) {
   const cfg = RES[key];
   const rows = await api(key);
   currentRows = rows;
+  selectMode = false; picked = new Set(); shownIds = [];
   bestIds = new Set();
   if (key === 'quotations') {
     const gk = r => [r.rfq, r.item, r.currency].join('|'), best = {}, n = {};
@@ -381,11 +409,11 @@ async function records(key) {
   let state = { q: '', view: cfg.views.includes(saved) ? saved : cfg.views[0], filter: 'all', sort: null };
   const cmp = key === 'quotations' ? await api('comparison') : null;
   const canCreate = !cfg.readonly && can.write;
-  setActions(`${!cfg.readonly && can.write ? '<button class="btn" data-go="imports">Import CSV</button>' : ''}<button class="btn" data-act="export">Export CSV</button>${canCreate ? `<button class="btn pri" data-act="new">+ New ${cfg.noun}</button>` : ''}`);
+  setActions(`${!cfg.readonly && can.write ? '<button class="btn" data-go="imports">Import CSV</button>' : ''}${bulkOps(key).length && rows.length ? '<button class="btn" data-act="selectmode">Select</button>' : ''}<button class="btn" data-act="export">Export CSV</button>${canCreate ? `<button class="btn pri" data-act="new">+ New ${cfg.noun}</button>` : ''}`);
   setBody(`${cmp && cmp.length ? `<div class="c" style="margin-bottom:16px"><div class="hd"><div><h2>Best value comparison</h2><small>Based on total quoted price. Check lead time, scope and terms before deciding; currencies stay separate.</small></div></div>${plainTable(cmp)}</div>` : ''}
     <div class="tools"><div class="sbox"><input id="q" placeholder="Search ${esc(PAGES[key][0].toLowerCase())}…" aria-label="Search"></div>
     ${cfg.views.length > 1 ? `<div class="seg" id="views">${cfg.views.map(v => `<button data-v="${v}">${v}</button>`).join('')}</div>` : ''}<span class="count" id="count"></span></div>
-    <div class="chips" id="filters" style="margin:-4px 4px 16px"></div><div id="recs"></div>`);
+    <div class="chips" id="filters" style="margin:-4px 4px 16px"></div><div id="recs"></div><div class="bulkbar hidden" id="bulkbar"></div>`);
   const paint = () => {
     const q = state.q.toLowerCase();
     let list = rows.filter(r => !q || Object.values(r).some(v => String(v ?? '').toLowerCase().includes(q)));
@@ -407,7 +435,10 @@ async function records(key) {
     else if (state.view === 'cards') html = list.length ? `<div class="cards">${list.map(r => cardHtml(key, r, cfg)).join('')}</div>` : empty('No matching records');
     else html = tableHtml(key, list, cfg, state.sort);
     $('#recs').innerHTML = html;
+    shownIds = list.map(r => r.id);
+    renderBulkBar();
   };
+  repaintRecords = paint;
   $('#q').oninput = e => { state.q = e.target.value; paint(); };
   $('#views') && ($('#views').onclick = e => { const b = e.target.closest('[data-v]'); if (b) { state.view = b.dataset.v; store.set('aos-view-' + key, state.view); paint(); } });
   $('#filters').onclick = e => { const b = e.target.closest('[data-f]'); if (b) { state.filter = b.dataset.f; paint(); } };
@@ -749,10 +780,18 @@ function openSetup() {
     closeLayer(); applyChrome(); msg('Accounts are on. You are signed in as administrator.'); render(active);
   });
 }
+function openChangePassword() {
+  drawer('Change password', fieldHtml(['current', 'Current password', 'password', 1]) + fieldHtml(['new', 'New password (10+ characters)', 'password', 1]) + fieldHtml(['confirm', 'Confirm new password', 'password', 1])
+    + '<div class="note">Changing your password signs you out everywhere else.</div>', 'Update password', async d => {
+    if (d.new !== d.confirm) throw Error('The new passwords do not match');
+    await api('auth/password', { method: 'POST', body: JSON.stringify({ current: d.current, new: d.new }) });
+    closeLayer(); msg('Password updated. Other devices were signed out.');
+  });
+}
 function openAccount() {
   if (!ME.accounts) return openSetup();
   const u = ME.user;
-  drawer('Account', `<div class="stack"><div class="field"><label>Name</label><div><b>${esc(u.display_name)}</b></div></div><div class="field"><label>Username</label><div>@${esc(u.username)}</div></div><div class="field"><label>Role</label><div><span class="badge blue">${esc(u.role)}</span></div></div><div class="note">Sessions last 12 hours. Approvals assigned to “${esc(u.display_name)}” or “${esc(u.username)}” show up as yours.</div></div>`,
+  drawer('Account', `<div class="stack"><div class="field"><label>Name</label><div><b>${esc(u.display_name)}</b></div></div><div class="field"><label>Username</label><div>@${esc(u.username)}</div></div><div class="field"><label>Role</label><div><span class="badge blue">${esc(u.role)}</span></div></div><div class="acts"><button type="button" class="btn" data-act="changepw">Change password</button><button type="button" class="btn bad" data-act="logoutall">Sign out of all devices</button></div><div class="note">Sessions last 12 hours. Approvals assigned to “${esc(u.display_name)}” or “${esc(u.username)}” show up as yours.</div></div>`,
   'Sign out', async () => {
     await api('auth/logout', { method: 'POST', body: '{}' });
     ME.user = null; showLogin();
@@ -807,7 +846,21 @@ document.addEventListener('click', async e => {
   const act = a.dataset.act, id = a.dataset.id;
   if (act === 'close') return closeLayer();
   if (act === 'setup') return openSetup();
+  if (act === 'selectmode') {
+    selectMode = !selectMode; picked = new Set();
+    const top = $('#pageactions [data-act=selectmode]'); if (top) top.textContent = selectMode ? 'Cancel selecting' : 'Select';
+    return repaintRecords && repaintRecords();
+  }
+  if (act === 'pickall') { shownIds.forEach(id => picked.add(id)); return repaintRecords && repaintRecords(); }
+  if (act === 'bulkstatus') return runBulk('status');
+  if (act === 'bulkdelete') return runBulk('delete');
   if (act === 'bell') return openNotifications();
+  if (act === 'changepw') return openChangePassword();
+  if (act === 'logoutall') {
+    if (!confirm('Sign out of every device, including this one?')) return;
+    try { await api('auth/logout-all', { method: 'POST', body: '{}' }); closeLayer(); ME.user = null; showLogin(); } catch (ex) { msg(ex.message); }
+    return;
+  }
   if (act === 'dismiss') { const d = dismissed(); d.add(ukey(a.dataset.key)); saveDismissed(d); paintBell(); return drawNotes(); }
   if (act === 'dismissall') { const d = dismissed(); liveNotes().forEach(n => d.add(ukey(n.key))); saveDismissed(d); paintBell(); return drawNotes(); }
   if (act === 'desktop') {
@@ -864,6 +917,8 @@ document.addEventListener('click', async e => {
   }
 });
 document.addEventListener('change', async e => {
+  if (e.target.id === 'pickall') { if (e.target.checked) shownIds.forEach(id => picked.add(id)); else picked = new Set(); return repaintRecords && repaintRecords(); }
+  if (e.target.classList && e.target.classList.contains('pickbox')) { const id = Number(e.target.dataset.id); if (e.target.checked) picked.add(id); else picked.delete(id); return renderBulkBar(); }
   if (!e.target.matches('select.status')) return;
   try { await api('status', { method: 'POST', body: JSON.stringify({ table: e.target.dataset.table, id: Number(e.target.dataset.id), status: e.target.value }) }); msg('Status updated'); render(active); }
   catch (ex) { msg(ex.message); }
