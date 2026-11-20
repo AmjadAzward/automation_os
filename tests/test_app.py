@@ -18,16 +18,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
+def load_app():
+    """Import a fresh copy of `app` and the whole `aos` package (config is read once, at import)."""
+    for name in [m for m in sys.modules if m == 'app' or m == 'aos' or m.startswith('aos.')]:
+        del sys.modules[name]
+    return importlib.import_module('app')
+
+
+def unload_app():
+    for name in [m for m in sys.modules if m == 'app' or m == 'aos' or m.startswith('aos.')]:
+        del sys.modules[name]
+
+
 class AppTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         os.environ['AUTOMATION_DB'] = str(Path(self.tmp.name) / 'test.sqlite3')
-        sys.modules.pop('app', None)
-        self.app = importlib.import_module('app')
+        self.app = load_app()
         self.app.init()
 
     def tearDown(self):
-        sys.modules.pop('app', None)
+        unload_app()
         gc.collect()  # release SQLite handles so Windows can delete the file
         self.tmp.cleanup()
 
@@ -151,7 +162,7 @@ class BackupFileTests(AppTestCase):
         self.assertEqual(len(self.app.list_backups()), 1)
 
     def test_retention_keeps_newest(self):
-        self.app.BACKUP_KEEP = 3
+        self.app.config.BACKUP_KEEP = 3
         for i in range(6):
             (self.app.BACKUP_DIR).mkdir(parents=True, exist_ok=True)
             p = self.app.BACKUP_DIR / f'backup-2026-01-0{i + 1}.json'
@@ -229,7 +240,7 @@ class HttpGuardTests(AppTestCase):
         self.assertEqual(self.call('GET', '/api/health', headers={'Host': 'evil.example'})[0], 403)
 
     def test_password_protection(self):
-        self.app.AUTH = 'secret'
+        self.app.config.AUTH = 'secret'
         try:
             self.assertEqual(self.call('GET', '/api/health')[0], 401)
             wrong = base64.b64encode(b'user:nope').decode()
@@ -237,7 +248,7 @@ class HttpGuardTests(AppTestCase):
             good = base64.b64encode(b'anyone:secret').decode()
             self.assertEqual(self.call('GET', '/api/health', headers={'Authorization': 'Basic ' + good})[0], 200)
         finally:
-            self.app.AUTH = ''
+            self.app.config.AUTH = ''
 
     def test_search_and_backup_endpoints(self):
         self.app.add_row('tasks', {'title': 'Findable'})

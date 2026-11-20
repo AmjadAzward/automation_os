@@ -10,7 +10,7 @@ import unittest
 from datetime import datetime, timedelta
 from http.server import ThreadingHTTPServer
 
-from test_app import AppTestCase
+from test_app import AppTestCase, load_app
 
 PW = 'correct-horse-battery'
 day = lambda n: (datetime.now().date() + timedelta(days=n)).isoformat()
@@ -207,8 +207,7 @@ class CoverDataTests(CoverMixin, AppTestCase):
                 INSERT INTO users(username,display_name,password_hash,created_at) VALUES('ann','Ann','x','2026-01-01');
             """)
         os.environ['AUTOMATION_DB'] = old
-        sys.modules.pop('app', None)
-        app = importlib.import_module('app')
+        app = load_app()
         app.init()
         app.init()
         self.assertEqual(app.list_users()[0]['delegate_to'], '')

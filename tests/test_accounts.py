@@ -6,7 +6,7 @@ import threading
 import unittest
 from http.server import ThreadingHTTPServer
 
-from test_app import AppTestCase
+from test_app import AppTestCase, load_app
 
 PW = 'correct-horse-battery'
 
@@ -276,8 +276,7 @@ class MigrationTests(AppTestCase):
                 INSERT INTO audit(action,entity,details,at) VALUES('create','tasks','{}','2026-01-01');
             """)
         os.environ['AUTOMATION_DB'] = old
-        sys.modules.pop('app', None)
-        app = importlib.import_module('app')
+        app = load_app()
         app.init()
         app.init()  # idempotent
         row = app.approvals_list()[0]

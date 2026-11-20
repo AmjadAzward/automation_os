@@ -143,7 +143,18 @@ Full endpoint notes are available in [`docs/API.md`](docs/API.md).
 
 ```text
 automation_os/
-|-- app.py                 Application server, API and automation engine
+|-- app.py                 Entry point (python app.py); re-exports the aos package
+|-- aos/                   The backend, one module per responsibility
+|   |-- config.py          Settings and constants
+|   |-- db.py              SQLite, schema, migrations, audit trail
+|   |-- settings.py        Automation settings
+|   |-- accounts.py        Users, passwords, sessions, roles
+|   |-- approvals.py       Multi-stage approvals, cover, people, notifications
+|   |-- records.py         Record CRUD, bulk changes, CSV import, search
+|   |-- reports.py         Dashboards and reports
+|   |-- backups.py         Backup, restore, daily automatic backups
+|   |-- automation.py      Rule engine, recurring tasks, scheduler
+|   `-- server.py          HTTP handler, request guards, routing
 |-- static/
 |   |-- index.html         Application shell and design system
 |   |-- app.js             Interface behavior and API integration
@@ -154,6 +165,10 @@ automation_os/
 |-- START_WINDOWS.bat      Windows launcher
 `-- LICENSE                MIT License
 ```
+
+### Working on the code
+
+The backend modules form layers: `config`, then `db`, `settings`, `accounts`, `approvals`, `records`, `reports`, `backups`, `automation`, and finally `server`. A module may import only from the layers before it, imports are explicit (no wildcards), and settings are read as `config.NAME` so they can be changed at run time. `tests/test_structure.py` enforces all three, so a mistake shows up as a failing test rather than a confusing import error. Tests change settings with `app.config.NAME = value`.
 
 ## Accounts, roles and approvals
 
