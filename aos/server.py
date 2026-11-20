@@ -16,7 +16,7 @@ from .settings import automation_runs, automation_settings, save_automation_sett
 from .accounts import AuthError, COOKIE, Forbidden, authenticate, change_password, check_access, create_user, end_session, list_users, logout_all, require_role, session_cookie, session_user, start_session, update_user, user_count
 from .approvals import approvals_list, decide_approval, delete_approval_guard, edit_approval_guard, notifications, people, prepare_approval_payload, set_delegation, withdraw_approval
 from .records import add_row, bulk_action, bulk_exception_status, delete_row, import_csv, search, update_row, update_status
-from .reports import attention_queue, compare_quotes, executive_report, insights, overview
+from .reports import audit_facets, audit_query, trends, attention_queue, compare_quotes, executive_report, insights, overview
 from .backups import auto_backup, backup_export, list_backups, restore_backup, restore_stored_backup
 from .automation import ai, scan, scheduler
 
@@ -105,6 +105,11 @@ class Handler(BaseHTTPRequestHandler):
                 n=user_count();return self.send({'accounts':n>0,'user':self.user if n>0 else None})
             if path=='/api/users':return self.send(list_users())
             if path=='/api/approvals':return self.send(approvals_list(self.user))
+            if path in ('/api/audit','/api/trends'):
+                q=parse_qs(urlparse(self.path).query);g=lambda k:(q.get(k) or [''])[0]
+                if path=='/api/trends':return self.send(trends(g('weeks') or 8))
+                return self.send(audit_query(g('actor'),g('action'),g('entity'),g('since'),g('until'),g('limit') or 500))
+            if path=='/api/audit/facets':return self.send(audit_facets())
             if path=='/api/search':return self.send(search((parse_qs(urlparse(self.path).query).get('q') or [''])[0]))
             if path=='/api/backups':return self.send(list_backups())
             if path=='/api/overview':
@@ -148,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/scan':return self.send(scan())
             if path=='/api/automation/settings':return self.send(save_automation_settings(obj))
             if path=='/api/ai':return self.send(ai(obj.get('prompt','')))
-            if path=='/api/import':return self.send(import_csv(obj.get('table'),obj.get('csv')))
+            if path=='/api/import':return self.send(import_csv(obj.get('table'),obj.get('csv'),bool(obj.get('dry_run')),obj.get('skip_duplicates',True) is not False))
             if path=='/api/status':return self.send(update_status(obj.get('table'),int(obj.get('id')),obj.get('status')))
             if path=='/api/exceptions/bulk':return self.send(bulk_exception_status(obj.get('ids'),obj.get('status')))
             if path=='/api/backups':return self.send({'ok':True,'name':auto_backup(force=True)})

@@ -1,4 +1,6 @@
 """Dashboards and reports computed from the data."""
+import json
+from datetime import date
 from datetime import datetime
 from datetime import timedelta
 from decimal import Decimal
@@ -65,3 +67,66 @@ def overview():
         outstanding=c.execute("SELECT COUNT(*) FROM exceptions WHERE status!='done'").fetchone()[0]
         approvals=c.execute("SELECT COUNT(*) FROM approvals WHERE status='pending'").fetchone()[0]
     return {'tasks':count('tasks'),'pending_tasks':pending,'quotations':count('quotations'),'contracts':count('contracts'),'transactions':count('transactions'),'exceptions':outstanding,'pending_approvals':approvals,'tariffs':count('tariffs')}
+
+
+def _valid_day(value,label):
+    value=str(value or '').strip()
+    if not value:return ''
+    try:datetime.strptime(value,'%Y-%m-%d')
+    except ValueError as e:raise ValueError(f'{label} must be a date like 2026-01-31') from e
+    return value
+
+def audit_query(actor='',action='',entity='',since='',until='',limit=500):
+    """Search the audit history. Every filter is optional and values are always bound as parameters."""
+    where,args=[],[]
+    for column,value in (('actor',actor),('action',action),('entity',entity)):
+        if str(value or '').strip():where.append(f'{column}=?');args.append(str(value).strip())
+    since,until=_valid_day(since,'From'),_valid_day(until,'To')
+    if since:where.append('substr(at,1,10)>=?');args.append(since)
+    if until:where.append('substr(at,1,10)<=?');args.append(until)
+    try:limit=min(max(int(limit),1),2000)
+    except (TypeError,ValueError):limit=500
+    sql='SELECT * FROM audit'+(' WHERE '+' AND '.join(where) if where else '')+' ORDER BY id DESC LIMIT ?'
+    with db() as c:return [dict(r) for r in c.execute(sql,[*args,limit])]
+
+def audit_facets():
+    """The people, actions and record types that appear in the history, for the filter menus."""
+    with db() as c:
+        pick=lambda col:[r[0] for r in c.execute(f"SELECT DISTINCT {col} FROM audit WHERE {col}!='' ORDER BY {col} LIMIT 200")]
+        return {'actors':pick('actor'),'actions':pick('action'),'entities':pick('entity')}
+
+def _done_count(action,details):
+    """How many records an audit entry moved to done (0 if it was something else)."""
+    try:d=json.loads(details)
+    except ValueError:return 0
+    if not isinstance(d,dict) or d.get('status')!='done':return 0
+    if action=='status_update':return 1
+    if action=='bulk_status':return int(d.get('affected') or 0)
+    if action=='bulk_status_update':return int(d.get('updated') or 0)
+    return 0
+
+def trends(weeks=8):
+    """Counts per week (Monday to Sunday) for the last few weeks: what was filed, decided, opened and finished."""
+    try:weeks=min(max(int(weeks),2),26)
+    except (TypeError,ValueError):weeks=8
+    monday=datetime.now().date()-timedelta(days=datetime.now().date().weekday())
+    starts=[monday-timedelta(weeks=i) for i in range(weeks-1,-1,-1)]
+    keys=('approvals_filed','approvals_decided','exceptions_opened','exceptions_resolved','tasks_created','tasks_completed')
+    buckets=[{'start':s.isoformat(),'label':f"{s.strftime('%b')} {s.day}",**{k:0 for k in keys}} for s in starts]
+    def bump(stamp,key,n=1):
+        try:day=date.fromisoformat(str(stamp)[:10])
+        except ValueError:return
+        i=(day-starts[0]).days//7
+        if 0<=i<weeks:buckets[i][key]+=n
+    floor=starts[0].isoformat()
+    with db() as c:
+        for r in c.execute('SELECT created_at FROM approvals WHERE created_at>=?',(floor,)):bump(r[0],'approvals_filed')
+        for r in c.execute("SELECT decided_at FROM approvals WHERE status IN ('approved','rejected') AND decided_at>=?",(floor,)):bump(r[0],'approvals_decided')
+        for r in c.execute('SELECT created_at FROM exceptions WHERE created_at>=?',(floor,)):bump(r[0],'exceptions_opened')
+        for r in c.execute('SELECT created_at FROM tasks WHERE created_at>=?',(floor,)):bump(r[0],'tasks_created')
+        for r in c.execute("SELECT action,entity,details,at FROM audit WHERE at>=? AND action IN ('exception_resolved','status_update','bulk_status','bulk_status_update')",(floor,)):
+            if r['action']=='exception_resolved':bump(r['at'],'exceptions_resolved');continue
+            n=_done_count(r['action'],r['details'])
+            if n and r['entity']=='exceptions':bump(r['at'],'exceptions_resolved',n)
+            elif n and r['entity']=='tasks':bump(r['at'],'tasks_completed',n)
+    return {'weeks':buckets,'totals':{k:sum(b[k] for b in buckets) for k in keys}}

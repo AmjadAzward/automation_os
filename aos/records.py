@@ -7,7 +7,7 @@ import sqlite3
 from .db import audit, db, money, now
 from .approvals import check_approval_rules, check_resubmission, create_steps
 
-def add_row(table,row):
+def add_row(table,row,dry_run=False):
     spec={
       'tasks':(['title','department','owner','due_date','status','priority'],['title']),
       'quotations':(['rfq','supplier','item','quantity','unit_price','currency','lead_days','terms'],['rfq','supplier','item','unit_price']),
@@ -37,6 +37,7 @@ def add_row(table,row):
     if table=='transactions':money(payload['billed']);money(payload.get('units','1'))
     for date_field in ('due_date','next_due'):
         if date_field in payload and payload[date_field] and not re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(payload[date_field])):raise ValueError('Date must be YYYY-MM-DD')
+    if dry_run:return {'valid':True}
     if table != 'tariffs':payload['created_at']=now()
     cols=list(payload)
     qs=','.join(['?']*len(cols))
@@ -146,13 +147,29 @@ def search(q):
                 out.append({'table':table,'id':r['id'],'title':r['title'],'sub':r['sub'] or ''})
     return out[:30]
 
-def import_csv(table,content):
-    if table not in ('tasks','recurring_tasks','approvals','quotations','contracts','tariffs','transactions'):raise ValueError('Invalid import resource')
+DEDUPE_KEYS={'tasks':('title','due_date','owner'),'contracts':('contract','obligation','due_date'),'quotations':('rfq','supplier','item'),'tariffs':('service','customer','effective_from'),'transactions':('ref',),'recurring_tasks':('title','frequency'),'approvals':('title','requester','amount')}
+def _fingerprint(row,keys):return tuple(str(row.get(k) or '').strip().lower() for k in keys)
+
+def import_csv(table,content,dry_run=False,skip_duplicates=True):
+    """Load rows from a CSV. dry_run only checks them (nothing is written); duplicates, whether already stored or repeated in the file, are skipped unless told otherwise."""
+    if table not in DEDUPE_KEYS:raise ValueError('Invalid import resource')
     if not isinstance(content,str) or len(content)>config.MAX_BODY:raise ValueError('Invalid CSV')
     rows=list(csv.DictReader(io.StringIO(content)))
     if len(rows)>5000:raise ValueError('Maximum 5,000 rows per import')
-    inserted=0;errors=[]
+    keys=DEDUPE_KEYS[table]
+    with db() as c:seen={_fingerprint(dict(r),keys) for r in c.execute(f"SELECT {','.join(keys)} FROM {table}")}
+    inserted=0;errors=[];duplicates=[];preview=[]
     for n,row in enumerate(rows,2):
-        try:add_row(table,{k.strip():v.strip() for k,v in row.items() if k is not None and v is not None});inserted+=1
+        clean={k.strip():v.strip() for k,v in row.items() if k is not None and v is not None}
+        try:add_row(table,dict(clean),dry_run=True)                 # validate before anything is written
+        except (ValueError,sqlite3.Error) as e:errors.append({'line':n,'error':str(e)});continue
+        fingerprint=_fingerprint(clean,keys)
+        duplicate=fingerprint in seen
+        if duplicate:duplicates.append(n)
+        if duplicate and skip_duplicates:continue
+        seen.add(fingerprint)
+        if len(preview)<5:preview.append(clean)
+        if dry_run:inserted+=1;continue
+        try:add_row(table,clean);inserted+=1
         except (ValueError,sqlite3.Error) as e:errors.append({'line':n,'error':str(e)})
-    return {'inserted':inserted,'failed':len(errors),'errors':errors[:40]}
+    return {'dry_run':bool(dry_run),'inserted':inserted,'failed':len(errors),'errors':errors[:40],'duplicates':len(duplicates),'duplicate_lines':duplicates[:40],'skipped_duplicates':len(duplicates) if skip_duplicates else 0,'preview':preview}
