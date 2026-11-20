@@ -33,6 +33,7 @@ The application binds to localhost by default, keeps its database on your machin
 | Revenue Assurance | Approved tariff master and automated billing shortfall detection |
 | Exception Management | Severity, status workflows and automatic resolution when conditions clear |
 | Performance Insights | Overdue work, upcoming deadlines, completion rates and recent activity |
+| Reports and Backup | Workload analytics, financial exposure, savings opportunities and JSON backup |
 | Data Portability | CSV import, CSV export, search, editing and deletion |
 | Local AI | Optional Ollama-powered analysis without sending data to a cloud model |
 | Auditability | Persistent history for creates, updates, deletions and automation events |

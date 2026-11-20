@@ -171,6 +171,31 @@ def bulk_exception_status(ids,status):
         audit(c,'bulk_status_update','exceptions',{'ids':clean,'status':status,'updated':cur.rowcount})
     return {'ok':True,'updated':cur.rowcount}
 
+def executive_report():
+    today_=today()
+    with db() as c:
+        workload=[dict(x) for x in c.execute("SELECT CASE WHEN owner='' THEN 'Unassigned' ELSE owner END owner,COUNT(*) total,SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) completed,SUM(CASE WHEN status!='done' AND due_date!='' AND due_date<? THEN 1 ELSE 0 END) overdue FROM tasks GROUP BY owner ORDER BY total DESC",(today_,))]
+        departments=[dict(x) for x in c.execute("SELECT department,COUNT(*) total,SUM(CASE WHEN status!='done' THEN 1 ELSE 0 END) open FROM tasks GROUP BY department ORDER BY total DESC")]
+        severities=[dict(x) for x in c.execute("SELECT severity,COUNT(*) total FROM exceptions WHERE status!='done' GROUP BY severity")]
+        transactions=[dict(x) for x in c.execute('SELECT * FROM transactions')]
+        tariffs=[dict(x) for x in c.execute('SELECT * FROM tariffs')]
+    leakage={}
+    for t in transactions:
+        matches=[r for r in tariffs if r['service']==t['service'] and r['customer'] in (t['customer'],'*') and (not r['effective_from'] or r['effective_from']<=(t['date'] or today_)) and r['currency']==t['currency']]
+        matches.sort(key=lambda r:(r['customer']!=t['customer'],r['effective_from']),reverse=False)
+        if matches:
+            gap=money(matches[0]['rate'])*money(t['units'])-money(t['billed'])
+            if gap>0:leakage[t['currency']]=leakage.get(t['currency'],Decimal('0'))+gap
+    savings={}
+    for group in compare_quotes():
+        totals=[money(x['total']) for x in group['alternatives']]
+        if len(totals)>1:savings[group['currency']]=savings.get(group['currency'],Decimal('0'))+(max(totals)-min(totals))
+    return {'generated_at':now(),'workload':workload,'departments':departments,'exception_severity':severities,'potential_leakage':{k:str(v) for k,v in leakage.items()},'quote_savings_opportunity':{k:str(v) for k,v in savings.items()}}
+
+def backup_export():
+    tables=('tasks','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs')
+    return {'format':'automation-os-backup','version':1,'exported_at':now(),'settings':automation_settings(),'data':{t:read_table(t,3000) for t in tables}}
+
 def compare_quotes():
     rows=read_table('quotations',3000)
     grouped={}
@@ -275,6 +300,8 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/overview':return self.send(overview())
             if path=='/api/insights':return self.send(insights())
             if path=='/api/attention':return self.send(attention_queue())
+            if path=='/api/reports/executive':return self.send(executive_report())
+            if path=='/api/backup':return self.send(backup_export())
             if path=='/api/automation/settings':return self.send(automation_settings())
             if path=='/api/automation/runs':return self.send(automation_runs())
             if path=='/api/comparison':return self.send(compare_quotes())
