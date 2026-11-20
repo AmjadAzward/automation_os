@@ -175,6 +175,7 @@ def session_cookie(token,max_age=SESSION_SECONDS,secure=False):
     return f"{COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age}"+('; Secure' if secure else '')
 
 def required_role(method,path):
+    if method=='DELETE' and path.startswith('/api/comments/'):return 'member'      # the function checks it is your own comment
     if path in ('/api/auth/password','/api/auth/logout-all'):return 'viewer'
     if path.startswith('/api/users'):return 'admin'
     if method=='GET':return 'admin' if path in ('/api/backup','/api/backups') else 'viewer'

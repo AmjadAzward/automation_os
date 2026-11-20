@@ -99,6 +99,7 @@ def delete_row(table,ident):
         row=c.execute(f'SELECT * FROM {table} WHERE id=?',(ident,)).fetchone()
         if not row:raise ValueError('Record not found')
         c.execute(f'DELETE FROM {table} WHERE id=?',(ident,))
+        if table in config.COMMENT_ENTITIES:c.execute('DELETE FROM comments WHERE entity=? AND entity_id=?',(table,ident))
         if table=='approvals':c.execute('DELETE FROM approval_steps WHERE approval_id=?',(ident,))
         audit(c,'delete',table,{'id':ident})
     return {'ok':True}
@@ -129,6 +130,7 @@ def bulk_action(table,ids,action,status=None):
         elif action=='delete':
             if table not in BULK_DELETE_TABLES:raise ValueError('These records cannot be deleted in bulk')
             cur=c.execute(f'DELETE FROM {table} WHERE id IN ({marks})',clean)
+            if table in config.COMMENT_ENTITIES:c.execute(f'DELETE FROM comments WHERE entity=? AND entity_id IN ({marks})',[table,*clean])
         else:raise ValueError('Unknown bulk action')
         audit(c,'bulk_'+action,table,{'ids':clean,'affected':cur.rowcount,**({'status':status} if action=='status' else {})})
     return {'ok':True,'affected':cur.rowcount}

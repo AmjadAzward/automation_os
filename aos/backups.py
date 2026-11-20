@@ -9,10 +9,10 @@ from .db import audit, db, now, read_table
 from .settings import automation_settings, save_automation_settings
 
 def backup_export():
-    tables=('tasks','recurring_tasks','approvals','approval_steps','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs')
+    tables=('tasks','recurring_tasks','approvals','approval_steps','comments','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs')
     return {'format':'automation-os-backup','version':1,'exported_at':now(),'settings':automation_settings(),'data':{t:read_table(t,3000) for t in tables}}
 
-RESTORE_TABLES=('tasks','recurring_tasks','approvals','approval_steps','quotations','contracts','tariffs','transactions','exceptions','automation_runs')
+RESTORE_TABLES=('tasks','recurring_tasks','approvals','approval_steps','comments','quotations','contracts','tariffs','transactions','exceptions','automation_runs')
 
 def restore_backup(obj):
     if not isinstance(obj,dict) or obj.get('format')!='automation-os-backup' or not isinstance(obj.get('data'),dict):raise ValueError('This is not an Automation OS backup file')

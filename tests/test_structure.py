@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / 'aos'
 
 # Lowest layer first. A module may import only from modules earlier in this list.
-LAYERS = ['config', 'db', 'settings', 'accounts', 'approvals', 'records', 'reports', 'backups', 'automation', 'server']
+LAYERS = ['config', 'db', 'settings', 'accounts', 'approvals', 'comments', 'records', 'reports', 'backups', 'automation', 'server']
 
 
 class StructureTests(unittest.TestCase):

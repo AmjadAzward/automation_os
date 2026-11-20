@@ -38,3 +38,4 @@ DEFAULT_SETTINGS={'task_rule':'1','contract_rule':'1','revenue_rule':'1','auto_r
 
 NUMERIC_SETTINGS={'due_days','scan_minutes','second_approval_threshold','approval_escalate_days','digest_hour'}
 CATEGORIES=('Purchase','Operational','Contract','Payment','Other')
+COMMENT_ENTITIES=('tasks','approvals','contracts')
