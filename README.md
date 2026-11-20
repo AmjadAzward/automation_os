@@ -27,6 +27,7 @@ The application binds to localhost by default, keeps its database on your machin
 |---|---|
 | Command Center | Live operational totals, exception summaries and quick-start guidance |
 | Automation Center | Configurable rules, manual runs, scheduled scans and run history |
+| Recurring Work | Daily, weekly and monthly task templates with automatic generation |
 | Work Queue | Task ownership, priorities, due dates and status tracking |
 | Supplier Comparison | RFQ grouping, total-price comparison, lead times and commercial terms |
 | Contract Obligations | Counterparty commitments, ownership and deadline monitoring |

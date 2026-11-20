@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS exceptions(id INTEGER PRIMARY KEY AUTOINCREMENT,finge
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,action TEXT NOT NULL,entity TEXT NOT NULL,details TEXT NOT NULL,at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS automation_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,started_at TEXT NOT NULL,finished_at TEXT NOT NULL,detected INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL DEFAULT 0,resolved INTEGER NOT NULL DEFAULT 0,trigger TEXT NOT NULL DEFAULT 'manual');
+CREATE TABLE IF NOT EXISTS recurring_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,department TEXT NOT NULL DEFAULT 'General',owner TEXT DEFAULT '',priority TEXT NOT NULL DEFAULT 'medium',frequency TEXT NOT NULL DEFAULT 'weekly',next_due TEXT NOT NULL,active TEXT NOT NULL DEFAULT 'yes',created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date,status);
 CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date,status);
 CREATE INDEX IF NOT EXISTS idx_transactions_service ON transactions(service,customer);
@@ -73,7 +74,7 @@ def audit(c,action,entity,details):
     c.execute('INSERT INTO audit(action,entity,details,at) VALUES(?,?,?,?)',(action,entity,json.dumps(details,ensure_ascii=False),now()))
 
 def read_table(table,limit=500):
-    if table not in ('tasks','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs'):raise ValueError('Invalid resource')
+    if table not in ('tasks','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs','recurring_tasks'):raise ValueError('Invalid resource')
     with db() as c:return [dict(x) for x in c.execute(f'SELECT * FROM {table} ORDER BY id DESC LIMIT ?', (min(max(limit,1),3000),))]
 
 def add_row(table,row):
@@ -83,6 +84,7 @@ def add_row(table,row):
       'contracts':(['contract','counterparty','obligation','owner','due_date','status'],['contract','obligation','due_date']),
       'tariffs':(['service','customer','currency','rate','unit','effective_from'],['service','rate']),
       'transactions':(['ref','service','customer','billed','units','currency','date'],['ref','service','customer','billed'])
+      ,'recurring_tasks':(['title','department','owner','priority','frequency','next_due','active'],['title','frequency','next_due'])
     }
     if table not in spec:raise ValueError('Invalid resource')
     allowed,required=spec[table]
@@ -91,10 +93,12 @@ def add_row(table,row):
         if not str(payload.get(k,'')).strip():raise ValueError(f'Missing: {k}')
     if table=='tasks' and payload.get('status','open') not in STATUSES:raise ValueError('Bad status')
     if table=='contracts' and payload.get('status','open') not in STATUSES:raise ValueError('Bad status')
+    if table=='recurring_tasks' and payload.get('frequency') not in ('daily','weekly','monthly'):raise ValueError('Frequency must be daily, weekly or monthly')
     if table=='quotations':money(payload['unit_price']);payload['quantity']=float(payload.get('quantity') or 1)
     if table=='tariffs':money(payload['rate']);payload.setdefault('customer','*')
     if table=='transactions':money(payload['billed']);money(payload.get('units','1'))
-    if 'due_date' in payload and payload['due_date'] and not re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(payload['due_date'])):raise ValueError('Date must be YYYY-MM-DD')
+    for date_field in ('due_date','next_due'):
+        if date_field in payload and payload[date_field] and not re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(payload[date_field])):raise ValueError('Date must be YYYY-MM-DD')
     if table != 'tariffs':payload['created_at']=now()
     cols=list(payload)
     qs=','.join(['?']*len(cols))
@@ -117,7 +121,8 @@ def update_row(table,ident,row):
       'quotations':['rfq','supplier','item','quantity','unit_price','currency','lead_days','terms'],
       'contracts':['contract','counterparty','obligation','owner','due_date','status'],
       'tariffs':['service','customer','currency','rate','unit','effective_from'],
-      'transactions':['ref','service','customer','billed','units','currency','date']
+      'transactions':['ref','service','customer','billed','units','currency','date'],
+      'recurring_tasks':['title','department','owner','priority','frequency','next_due','active']
     }
     if table not in spec:raise ValueError('Invalid resource')
     payload={k:row[k] for k in spec[table] if k in row}
@@ -134,7 +139,7 @@ def update_row(table,ident,row):
     return {'ok':True}
 
 def delete_row(table,ident):
-    if table not in ('tasks','quotations','contracts','tariffs','transactions'):raise ValueError('Invalid resource')
+    if table not in ('tasks','quotations','contracts','tariffs','transactions','recurring_tasks'):raise ValueError('Invalid resource')
     with LOCK,db() as c:
         row=c.execute(f'SELECT * FROM {table} WHERE id=?',(ident,)).fetchone()
         if not row:raise ValueError('Record not found')
@@ -193,7 +198,7 @@ def executive_report():
     return {'generated_at':now(),'workload':workload,'departments':departments,'exception_severity':severities,'potential_leakage':{k:str(v) for k,v in leakage.items()},'quote_savings_opportunity':{k:str(v) for k,v in savings.items()}}
 
 def backup_export():
-    tables=('tasks','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs')
+    tables=('tasks','recurring_tasks','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs')
     return {'format':'automation-os-backup','version':1,'exported_at':now(),'settings':automation_settings(),'data':{t:read_table(t,3000) for t in tables}}
 
 def compare_quotes():
@@ -209,8 +214,26 @@ def compare_quotes():
         output.append({'rfq':rfq,'item':item,'currency':currency,'best_supplier':sorted_group[0]['supplier'],'best_total':str(money(sorted_group[0]['unit_price'])*money(sorted_group[0]['quantity'])),'offers':len(group),'alternatives':[{'supplier':r['supplier'],'total':str(money(r['unit_price'])*money(r['quantity'])),'lead_days':r['lead_days']} for r in sorted_group]})
     return output
 
+def materialize_recurring_tasks():
+    generated=0;today_=datetime.now().date()
+    with LOCK,db() as c:
+        rows=c.execute("SELECT * FROM recurring_tasks WHERE active='yes' AND next_due<=?",(today_.isoformat(),)).fetchall()
+        for row in rows:
+            due=datetime.strptime(row['next_due'],'%Y-%m-%d').date()
+            while due<=today_:
+                cur=c.execute("INSERT INTO tasks(title,department,owner,due_date,status,priority,source,created_at) VALUES(?,?,?,?,'open',?,'recurring',?)",(row['title'],row['department'],row['owner'],due.isoformat(),row['priority'],now()))
+                audit(c,'recurring_task_created','tasks',{'id':cur.lastrowid,'template_id':row['id'],'due_date':due.isoformat()});generated+=1
+                if row['frequency']=='daily':due+=timedelta(days=1)
+                elif row['frequency']=='weekly':due+=timedelta(days=7)
+                else:
+                    month=due.month+1;year=due.year+(month>12);month=1 if month>12 else month
+                    import calendar
+                    due=due.replace(year=year,month=month,day=min(due.day,calendar.monthrange(year,month)[1]))
+            c.execute('UPDATE recurring_tasks SET next_due=? WHERE id=?',(due.isoformat(),row['id']))
+    return generated
+
 def scan(trigger='manual'):
-    started=now();config=automation_settings()
+    started=now();config=automation_settings();generated=materialize_recurring_tasks()
     cutoff=(datetime.now().date()+timedelta(days=config['due_days'])).isoformat()
     today_=today()
     issues=[]
@@ -241,7 +264,7 @@ def scan(trigger='manual'):
                     c.execute("UPDATE exceptions SET status='done' WHERE id=?",(row['id'],));resolved+=1
                     audit(c,'exception_resolved','exceptions',{'id':row['id'],'reason':'condition_cleared'})
         c.execute('INSERT INTO automation_runs(started_at,finished_at,detected,created,resolved,trigger) VALUES(?,?,?,?,?,?)',(started,now(),len(issues),created,resolved,trigger))
-    return {'detected':len(issues),'new':created,'resolved':resolved,'trigger':trigger}
+    return {'detected':len(issues),'new':created,'resolved':resolved,'recurring_generated':generated,'trigger':trigger}
 
 def overview():
     with db() as c:
@@ -267,7 +290,7 @@ def ai(prompt):
     return {'answer':result.get('response',''),'model':model}
 
 def import_csv(table,content):
-    if table not in ('tasks','quotations','contracts','tariffs','transactions'):raise ValueError('Invalid import resource')
+    if table not in ('tasks','recurring_tasks','quotations','contracts','tariffs','transactions'):raise ValueError('Invalid import resource')
     if not isinstance(content,str) or len(content)>MAX_BODY:raise ValueError('Invalid CSV')
     rows=list(csv.DictReader(io.StringIO(content)))
     if len(rows)>5000:raise ValueError('Maximum 5,000 rows per import')
