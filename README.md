@@ -193,6 +193,39 @@ Approvers are chosen from a list of real, active users and stored by username, s
 
 Changed your mind? The requester (or an admin) can **Withdraw** a pending request with an optional reason. Approvers stop being asked, any approvals already given are kept on file, and the request moves to a Withdrawn column instead of vanishing, which is the difference from deleting it. A rejected or withdrawn request offers **Resubmit**: a pre-filled form that creates a new request linked to the old one ("Resubmission of #12"), so the story stays traceable. You can only resubmit your own requests (an admin may resubmit any).
 
+### Comments
+
+Every task, approval and contract has a **Comment** button that opens a thread. Members can post; viewers can read; you can delete your own comments (admins can delete any). The requester and approvers of an approval (including a colleague covering for one) and the owner of a task or contract get a notification when someone else comments. Comment text is never copied into the audit history, only the fact that a comment was made.
+
+### Daily digest
+
+A short summary of what needs you (the same items as the notification bell). It is **off by default** and nothing leaves your computer unless you set it up:
+
+1. An administrator switches **Daily digest** on in Automation Center and picks the hour.
+2. Each person opts in from the account menu (top right), where they can also add an email address, preview their digest, and send themselves a test.
+3. Digests are always saved as text files in `data/outbox/` (owner-only, newest 500 kept). They are emailed only if the server has SMTP configured **and** the person has an address.
+
+Digests are sent at most once a day per person, after the chosen hour, and never when there is nothing to report. To enable email, set these environment variables before starting (the password is read only from the environment and is never stored, logged or returned by any API):
+
+| Variable | Meaning |
+|---|---|
+| `AUTOMATION_SMTP_HOST` / `AUTOMATION_SMTP_PORT` | Mail server (port defaults to 587) |
+| `AUTOMATION_SMTP_FROM` | Sender address, for example `ops@example.com` |
+| `AUTOMATION_SMTP_USER` / `AUTOMATION_SMTP_PASSWORD` | Login, if the server needs one |
+| `AUTOMATION_SMTP_SECURITY` | `starttls` (default), `ssl` or `none` |
+| `AUTOMATION_PUBLIC_URL` | Link shown in the digest (defaults to the local address) |
+
+Think before turning email on: digests contain request titles and amounts, and email is not a private channel.
+
+### Reports and housekeeping
+
+- **Trends**: Performance Insights shows weekly charts for the last eight weeks (requests filed and decided, exceptions opened and resolved, tasks created and completed), each with a table of the numbers.
+- **Audit history** can be filtered by person, action, record type and date range, and the filtered view exports to CSV.
+- **CSV import** has a **Preview first** step that shows what would be added, which rows are duplicates and which have problems, without writing anything. Rows that already exist, or are repeated in the file, are skipped (tick "Import duplicates anyway" to override), so importing the same file twice is safe.
+- Long lists show the first 100 records with a **Show more** button.
+- **Second-approver limits by category**: besides the general amount, an admin can set a different limit for Purchase, Payment and so on in Automation Center (blank = use the general limit, 0 = never required).
+- Changes are rate limited per client (300 a minute by default; `AUTOMATION_WRITE_LIMIT`, 0 turns it off), restoring a backup also restores its settings, and backup files are owner-only. The database runs in WAL mode, so you may see `-wal` and `-shm` files next to it in `data/`; that is normal.
+
 ### Out-of-office cover
 
 Going away? Open the account menu and choose **Start cover**: pick a colleague (a member or higher) and the date you are back, up to 90 days ahead. Until that date they can decide requests assigned to you, see them under "waiting on you" with a "covering for" label, and get the notifications. The record shows who really decided and for whom, and cover ends by itself. The rules that protect approvals still apply: nobody can decide their own request through cover, and one person still cannot approve two steps of the same request. You can always decide your own requests too, and end cover early.

@@ -243,6 +243,80 @@ try {
   await click('[data-act=bulkdelete]');
   check('bulk delete removes the selected card only', !!(await waitFor(`!document.body.innerText.includes('Bulk C') && document.body.innerText.includes('Bulk A')`)));
 
+  // ---- comments
+  await api('POST', 'tasks', { title: 'Commentable task' });
+  await goto('#/tasks'); await ev(`render(active)`);   // the task was created behind the page's back
+  const taskCard = `[...document.querySelectorAll('.card')].find(c => c.innerText.includes('Commentable task'))`;
+  await ev(`${taskCard}.querySelector('[data-act=comments]').click()`); await waitFor(`!!document.querySelector('#cbody')`);
+  await setVal('#cbody', 'Please confirm the delivery date'); await ev(`document.querySelector('#cform').requestSubmit()`);
+  check('posting a comment shows it in the thread', !!(await waitFor(`document.querySelector('#thread')?.innerText.includes('Please confirm the delivery date')`)));
+  check('the card shows the new comment count', !!(await waitFor(`${taskCard}?.innerText.includes('Comments (1)')`)));
+  await ev(`document.querySelector('[data-act=delcomment]').click()`);
+  check('the author can delete their own comment', !!(await waitFor(`document.querySelector('#thread')?.innerText.includes('No comments yet')`)));
+  await ev(`document.querySelector('[data-act=close]').click()`);
+
+  // ---- trend charts
+  await goto('#/insights');
+  check('trend charts are drawn with accessible labels', await ev(`[...document.querySelectorAll('svg.chart')].length === 3 && document.querySelector('svg.chart').getAttribute('aria-label').includes('Approval requests')`));
+  await ev(`document.querySelector('svg.chart').scrollIntoView({ block: 'center' })`); await sleep(300);
+  await shot('insights-charts');
+
+  // ---- audit filters
+  await goto('#/audit'); await waitFor(`!!document.querySelector('#af_actor')`);
+  await setVal('#af_actor', 'ann');
+  await ev(`document.querySelector('#af_actor').dispatchEvent(new Event('change', { bubbles: true }))`);
+  check('the audit page can be filtered by person', !!(await waitFor(`(() => { const rows = [...document.querySelectorAll('.tl .fi')]; return rows.length > 0 && rows.every(r => r.innerText.includes('by ann')); })()`)));
+
+  // ---- import preview and duplicates
+  await goto('#/imports');
+  await ev(`(() => { const dt = new DataTransfer(); dt.items.add(new File(['title,owner\\nImp A,ann\\nImp A,ann\\nImp B,bob\\n,nobody\\n'], 'tasks.csv', { type: 'text/csv' })); const i = document.querySelector('#file'); i.files = dt.files; i.dispatchEvent(new Event('change')); })()`);
+  await click('#preview');
+  check('import preview says what would happen', !!(await waitFor(`(() => { const t = document.querySelector('#importResult')?.innerText || ''; return t.includes('2 rows would be added') && t.includes('1 duplicate skipped') && t.includes('1 with problems'); })()`)));
+  check('previewing imports nothing', (await api('GET', 'tasks')).body.filter(t => t.title.startsWith('Imp ')).length === 0);
+  await shot('import-preview');
+  await click('#upload');
+  check('the real import adds the same rows', !!(await waitFor(`document.querySelector('#importResult')?.innerText.includes('2 added')`)));
+  await click('#upload');
+  check('importing the same file again adds nothing', !!(await waitFor(`document.querySelector('#importResult')?.innerText.includes('0 added')`)));
+
+  // ---- long lists page their results
+  const bigCsv = 'title\n' + Array.from({ length: 105 }, (_, i) => `Pgn row ${i}`).join('\n');
+  const bigImport = await api('POST', 'import', { table: 'tasks', csv: bigCsv });
+  check('a large import succeeds in one request', bigImport.body.inserted === 105, JSON.stringify(bigImport.body).slice(0, 160));
+  await goto('#/tasks'); await ev(`render(active)`); await click('#views [data-v=cards]');
+  await waitFor(`document.querySelectorAll('.card').length >= 100`);
+  check('long lists show the first hundred with a Show more button', (await ev(`document.querySelectorAll('.card').length`)) === 100 && (await ev(`!!document.querySelector('[data-act=showmore]')`)));
+  await click('[data-act=showmore]');
+  check('Show more reveals the rest', !!(await waitFor(`document.querySelectorAll('.card').length > 100 && !document.querySelector('[data-act=showmore]')`)));
+  const pgn = (await api('GET', 'tasks')).body.filter(t => t.title.startsWith('Pgn row')).map(t => t.id);
+  await api('POST', 'bulk', { table: 'tasks', ids: pgn, action: 'delete' });       // tidy up so later checks stay quick
+  await click('#views [data-v=board]');
+
+  // ---- approval limits by category
+  await goto('#/automation'); await waitFor(`!!document.querySelector('#cl_Purchase')`);
+  await setVal('#cl_Purchase', '100'); await ev(`document.querySelector('#aform').requestSubmit()`);
+  check('category limits can be saved', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Automation settings saved')`)));
+  const needsSecond = await api('POST', 'approvals', { title: 'Big purchase', approver: 'ann', amount: '500', category: 'Purchase' });
+  check('a Purchase above its limit needs a second approver', needsSecond.status === 400 && /second approver/.test(needsSecond.body.error), JSON.stringify(needsSecond));
+  const allowed = await api('POST', 'approvals', { title: 'Big purchase', approver: 'ann', second_approver: 'bob', amount: '500', category: 'Purchase' });
+  check('naming a second approver satisfies it', allowed.status === 200, JSON.stringify(allowed));
+  await api('POST', 'approvals/withdraw', { id: allowed.body.id });
+  await api('POST', 'automation/settings', { category_thresholds: {} });
+
+  // ---- daily digest profile
+  await click('#userchip'); await waitFor(`!!document.querySelector('#pf_email')`);
+  await setVal('#pf_email', 'olive@example.test'); await ev(`document.querySelector('#pf_digest').click()`);
+  await click('[data-act=saveprofile]');
+  check('a person can opt in to the daily digest', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Digest settings saved')`)));
+  await waitFor(`document.querySelector('#pf_email')?.value === 'olive@example.test' && document.querySelector('#pf_digest')?.checked`);
+  check('the saved choice is remembered', await ev(`document.querySelector('#pf_email').value === 'olive@example.test' && document.querySelector('#pf_digest').checked`));
+  await click('[data-act=digestpreview]');
+  check('the digest can be previewed', !!(await waitFor(`!document.querySelector('#digestPrev').classList.contains('hidden') && document.querySelector('#digestPrev').innerText.length > 20`)));
+  await click('[data-act=digesttest]');
+  check('a test digest is saved to the outbox when email is not configured', !!(await waitFor(`document.querySelector('#message')?.innerText.toLowerCase().includes('outbox')`)));
+  await shot('digest-profile');
+  await ev(`document.querySelector('[data-act=close]').click()`);
+
   // ---- self-service: change your own password
   await click('#userchip'); await waitFor(`!!document.querySelector('[data-act=changepw]')`);
   await click('[data-act=changepw]'); await waitFor(`!!document.querySelector('#f_current')`);

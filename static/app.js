@@ -83,6 +83,7 @@ const defs = {
   transactions: [['ref','Invoice / transaction ref','text',1],['service','Service code','text',1],['customer','Customer','text',1],['billed','Billed amount','number',1],['units','Units','number'],['currency','Currency'],['date','Transaction date','date']]
 };
 const ST = ['open', 'in_progress', 'blocked', 'done'];
+const CATEGORIES = ['Purchase', 'Operational', 'Contract', 'Payment', 'Other'];
 
 /* ---------- how each resource is shown ---------- */
 const RES = {
@@ -310,13 +311,35 @@ async function todayView() {
 }
 
 /* ---------- insights ---------- */
+function groupedBars(weeks, k1, k2, l1, l2, title) {
+  const W = 560, H = 200, pad = { l: 34, r: 8, t: 14, b: 30 };
+  const top = Math.max(4, Math.ceil(Math.max(1, ...weeks.flatMap(w => [w[k1], w[k2]])) / 4) * 4);   // whole-number gridlines
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, slot = iw / weeks.length, bw = Math.min(18, slot / 2.6);
+  const y = v => pad.t + ih - (v / top) * ih, h = v => Math.max(v ? 2 : 0, (v / top) * ih);
+  const grid = [0, 1, 2, 3, 4].map(i => { const v = top * i / 4; return `<line class="gl" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${pad.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`; }).join('');
+  const bars = weeks.map((w, i) => {
+    const cx = pad.l + slot * i + slot / 2;
+    return `<rect class="b1" x="${cx - bw - 1}" y="${y(w[k1])}" width="${bw}" height="${h(w[k1])}" rx="2"><title>${esc(w.label)}: ${w[k1]} ${l1.toLowerCase()}</title></rect><rect class="b2" x="${cx + 1}" y="${y(w[k2])}" width="${bw}" height="${h(w[k2])}" rx="2"><title>${esc(w.label)}: ${w[k2]} ${l2.toLowerCase()}</title></rect><text x="${cx}" y="${H - 10}" text-anchor="middle">${esc(w.label)}</text>`;
+  }).join('');
+  const t1 = weeks.reduce((a, w) => a + w[k1], 0), t2 = weeks.reduce((a, w) => a + w[k2], 0);
+  const table = weeks.map(w => ({ week: w.label, [l1.toLowerCase()]: w[k1], [l2.toLowerCase()]: w[k2] }));
+  return `<section class="c s4"><div class="hd"><div><h2>${esc(title)}</h2><small>Last ${weeks.length} weeks</small></div></div><div class="chartbox"><svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}: ${t1} ${l1.toLowerCase()} and ${t2} ${l2.toLowerCase()} over ${weeks.length} weeks">${grid}${bars}</svg><div class="legend2"><span><i style="background:var(--blue)"></i>${l1} (${t1})</span><span><i style="background:var(--good)"></i>${l2} (${t2})</span></div><details><summary>Show the numbers</summary>${plainTable(table)}</details></div></section>`;
+}
+const chartsHtml = tr => groupedBars(tr.weeks, 'approvals_filed', 'approvals_decided', 'Filed', 'Decided', 'Approval requests')
+  + groupedBars(tr.weeks, 'exceptions_opened', 'exceptions_resolved', 'Opened', 'Resolved', 'Exceptions')
+  + groupedBars(tr.weeks, 'tasks_created', 'tasks_completed', 'Created', 'Completed', 'Tasks');
 async function insightsView() {
-  const x = await api('insights');
+  const [x, tr] = await Promise.all([api('insights'), api('trends?weeks=8')]);
   const kpi = (l, v, n, k) => `<div class="c kpi s3" style="--k:${k};cursor:default"><span class="l"><i></i>${l}</span><b>${v}</b><span class="n">${n}</span></div>`;
   setBody(`<div class="bento">${kpi('Overdue tasks', x.overdue_tasks, 'Past their due date', 'var(--bad)')}${kpi('Due this week', x.due_soon, 'Next seven days', 'var(--warn)')}${kpi('High-risk alerts', x.high_exceptions, 'Needs attention', 'var(--accent)')}${kpi('Completion rate', x.completion_rate + '%', 'Tasks marked done', 'var(--good)')}
     <section class="c s5"><div class="hd"><div><h2>Operational health</h2><small>Calculated from local records</small></div></div><div class="ringbox">${ring(x.completion_rate, x.completion_rate + '%')}<p style="margin:0">Focus first on overdue tasks and high-severity exceptions. Completion is measured across every task in the workspace.</p></div></section>
-    <section class="c s7"><div class="hd"><div><h2>Recent activity</h2><small>Latest recorded changes</small></div><button class="btn sm" data-go="audit">Full history</button></div><div class="tl">${x.recent.map(r => `<div class="fi"><div><b>${esc(human(r.action))} · ${esc(r.entity)}</b><small>${esc(r.at)}</small></div></div>`).join('') || empty('No activity yet')}</div></section></div>`);
+    <section class="c s7"><div class="hd"><div><h2>Recent activity</h2><small>Latest recorded changes</small></div><button class="btn sm" data-go="audit">Full history</button></div><div class="tl">${x.recent.slice(0, 8).map(r => `<div class="fi"><div><b>${esc(human(r.action))} · ${esc(r.entity)}</b><small>${esc(r.at)}</small></div></div>`).join('') || empty('No activity yet')}</div></section>${chartsHtml(tr)}</div>`);
 }
+
+/* ---------- comments, paging ---------- */
+let commentCounts = {}, showMoreRecords = null;
+const COMMENTABLE = ['tasks', 'approvals', 'contracts'];
+const commentBtn = (key, r) => (COMMENTABLE.includes(key) ? `<button class="ln" data-act="comments" data-id="${r.id}">${commentCounts[r.id] ? `Comments (${commentCounts[r.id]})` : 'Comment'}</button>` : '');
 
 /* ---------- bulk selection ---------- */
 const BULK = { tasks: ['status', 'delete'], contracts: ['status', 'delete'], exceptions: ['status'], quotations: ['delete'], tariffs: ['delete'], transactions: ['delete'], recurring_tasks: ['delete'] };
@@ -351,6 +374,31 @@ function ownerActions(key, r) {
   if (r.status === 'pending') return `<button class="ln" data-act="withdraw" data-id="${r.id}">Withdraw</button>`;
   if (r.status === 'rejected' || r.status === 'withdrawn') return `<button class="ln" data-act="resubmit" data-id="${r.id}">Resubmit</button>`;
   return '';
+}
+async function openComments(key, id) {
+  const row = currentRows.find(r => Number(r.id) === Number(id));
+  const title = row ? RES[key].title(row) : 'Record';
+  window._opener = document.activeElement;
+  $('#layer').innerHTML = `<div class="back" id="back"><aside class="drawer" role="dialog" aria-modal="true" aria-label="Comments"><header><h2>Comments</h2><button class="ib" data-act="close" aria-label="Close">×</button></header><p style="margin:0"><b>${esc(title)}</b></p><div id="thread"></div>${can.write ? '<form id="cform" class="stack"><div class="field"><label for="cbody">Add a comment</label><textarea id="cbody" maxlength="2000" placeholder="Write a comment…"></textarea></div><button class="btn pri" type="submit">Post comment</button></form>' : ''}</aside></div>`;
+  $('#back').onclick = e => { if (e.target.id === 'back') closeLayer(); };
+  document.addEventListener('keydown', escClose);
+  const draw = async () => {
+    const list = await api(`comments?entity=${key}&id=${id}`);
+    commentCounts[id] = list.length;
+    const el = $('#thread');
+    if (el) el.innerHTML = list.length ? list.map(c => `<div class="cm"><div class="who"><b>${esc(c.author_name)}</b><small>${esc(String(c.at).slice(0, 16).replace('T', ' '))}</small>${can.admin || mineName(c.author) ? `<button class="ln d" data-act="delcomment" data-cid="${c.id}">Delete</button>` : ''}</div><p>${esc(c.body)}</p></div>`).join('') : '<div class="mt">No comments yet.</div>';
+    if (repaintRecords) repaintRecords();
+  };
+  window._drawComments = draw;
+  const form = $('#cform');
+  if (form) form.onsubmit = async e => {
+    e.preventDefault();
+    const body = $('#cbody').value.trim();
+    if (!body) return;
+    try { await api('comments', { method: 'POST', body: JSON.stringify({ entity: key, id: Number(id), body }) }); $('#cbody').value = ''; await draw(); }
+    catch (ex) { msg(ex.message); }
+  };
+  try { await draw(); } catch (ex) { msg(ex.message); }
 }
 function openWithdraw(id) {
   drawer('Withdraw request', '<p>Withdrawing cancels the request. Approvers are no longer asked to decide it, and it stays on file with your reason so the history is kept. You can resubmit it later.</p><div class="field"><label for="wr">Reason (optional)</label><textarea id="wr" name="reason" placeholder="Why are you withdrawing it?"></textarea></div>', 'Withdraw request', async d => {
@@ -390,7 +438,7 @@ function cardHtml(key, r, cfg) {
     ${key === 'approvals' && r.decision_comment ? `<div class="note">“${esc(r.decision_comment)}”</div>` : ''}
     ${chips.length || d || (pr && cfg.date) ? `<div class="meta">${d ? `<span class="badge ${d[0]}">${esc(d[1])}</span>` : ''}${pr && cfg.date ? `<span class="badge ${esc(pr)}">${esc(pr)}</span>` : ''}${chips.map(c => `<span class="badge ${c.startsWith('★') ? 'good' : ''}">${esc(c)}</span>`).join('')}</div>` : ''}
     <div class="foot">${decide || statusSelect}${key === 'approvals' && r.status !== 'pending' ? `<span class="badge ${esc(r.status)}">${esc(r.status)}</span>` : ''}
-      <span class="sp"></span>${ownerActions(key, r)}${!cfg.readonly && can.write ? `<button class="ln" data-act="dup" data-id="${r.id}">Duplicate</button>` : ''}${editable ? `<button class="ln" data-act="edit" data-id="${r.id}">Edit</button>` : ''}${!cfg.readonly && can.del && (key !== 'approvals' || ownsApproval(r)) ? `<button class="ln d" data-act="del" data-id="${r.id}">Delete</button>` : ''}</div></article>`;
+      <span class="sp"></span>${commentBtn(key, r)}${ownerActions(key, r)}${!cfg.readonly && can.write ? `<button class="ln" data-act="dup" data-id="${r.id}">Duplicate</button>` : ''}${editable ? `<button class="ln" data-act="edit" data-id="${r.id}">Edit</button>` : ''}${!cfg.readonly && can.del && (key !== 'approvals' || ownsApproval(r)) ? `<button class="ln d" data-act="del" data-id="${r.id}">Delete</button>` : ''}</div></article>`;
 }
 const HIDE = new Set(['steps', 'can_decide']);
 function tableHtml(key, rows, cfg, sort) {
@@ -401,14 +449,15 @@ function tableHtml(key, rows, cfg, sort) {
     const v = r[k];
     const badge = ['status', 'severity', 'priority'].includes(k) && v;
     return `<td class="${['details', 'title', 'terms', 'obligation', 'rationale', 'decision_comment'].includes(k) ? 'wrap' : ''}">${badge ? `<span class="badge ${esc(v)}">${esc(human(v))}</span>` : esc(typeof v === 'object' && v !== null ? JSON.stringify(v) : v)}</td>`;
-  }).join('')}${acts ? `<td>${key === 'approvals' && r.can_decide ? `<button class="ln" data-act="decide" data-id="${r.id}" data-d="approved">Approve</button><button class="ln d" data-act="decide" data-id="${r.id}" data-d="rejected">Reject</button>` : ''}${ownerActions(key, r)}${can.write ? `<button class="ln" data-act="dup" data-id="${r.id}">Duplicate</button>` : ''}${can.write && !(key === 'approvals' && (!approvalEditable(r) || !ownsApproval(r))) ? `<button class="ln" data-act="edit" data-id="${r.id}">Edit</button>` : ''}${can.del && (key !== 'approvals' || ownsApproval(r)) ? `<button class="ln d" data-act="del" data-id="${r.id}">Delete</button>` : ''}</td>` : ''}</tr>`
+  }).join('')}${acts ? `<td>${commentBtn(key, r)}${key === 'approvals' && r.can_decide ? `<button class="ln" data-act="decide" data-id="${r.id}" data-d="approved">Approve</button><button class="ln d" data-act="decide" data-id="${r.id}" data-d="rejected">Reject</button>` : ''}${ownerActions(key, r)}${can.write ? `<button class="ln" data-act="dup" data-id="${r.id}">Duplicate</button>` : ''}${can.write && !(key === 'approvals' && (!approvalEditable(r) || !ownsApproval(r))) ? `<button class="ln" data-act="edit" data-id="${r.id}">Edit</button>` : ''}${can.del && (key !== 'approvals' || ownsApproval(r)) ? `<button class="ln d" data-act="del" data-id="${r.id}">Delete</button>` : ''}</td>` : ''}</tr>`
   ).join('')}</tbody></table></div>`;
 }
 function auditSummary(raw) {
   let o; try { o = JSON.parse(raw); } catch (e) { return String(raw || ''); }
   const v = o && o.values ? o.values : o;
   if (!v || typeof v !== 'object') return String(raw || '');
-  return Object.entries(v).slice(0, 4).map(([k, x]) => `${human(k)}: ${typeof x === 'object' ? JSON.stringify(x) : x}`).join(' · ').slice(0, 180);
+  const show = x => (Array.isArray(x) ? (x.length > 5 ? `${x.slice(0, 5).join(', ')} … (${x.length} in all)` : x.join(', ')) : typeof x === 'object' && x !== null ? JSON.stringify(x) : x);
+  return Object.entries(v).slice(0, 4).map(([k, x]) => `${human(k)}: ${show(x)}`).join(' · ').slice(0, 180);
 }
 function auditHtml(list) {
   if (!list.length) return empty('No matching events');
@@ -417,8 +466,9 @@ function auditHtml(list) {
 }
 async function records(key) {
   const cfg = RES[key];
-  const rows = await api(key);
+  let rows = await api(key);
   currentRows = rows;
+  commentCounts = COMMENTABLE.includes(key) ? await api('comments/counts?entity=' + key).catch(() => ({})) : {};
   selectMode = false; picked = new Set(); shownIds = [];
   bestIds = new Set();
   if (key === 'quotations') {
@@ -428,12 +478,12 @@ async function records(key) {
   }
   const phone = matchMedia('(max-width: 760px)').matches;
   const saved = store.get('aos-view-' + key, phone && cfg.views.includes('cards') ? 'cards' : cfg.views[0]);
-  let state = { q: '', view: cfg.views.includes(saved) ? saved : cfg.views[0], filter: 'all', sort: null };
+  let state = { q: '', view: cfg.views.includes(saved) ? saved : cfg.views[0], filter: 'all', sort: null, limit: 100 };
   const cmp = key === 'quotations' ? await api('comparison') : null;
   const canCreate = !cfg.readonly && can.write;
   setActions(`${!cfg.readonly && can.write ? '<button class="btn" data-go="imports">Import CSV</button>' : ''}${bulkOps(key).length && rows.length ? '<button class="btn" data-act="selectmode">Select</button>' : ''}<button class="btn" data-act="export">Export CSV</button>${canCreate ? `<button class="btn pri" data-act="new">+ New ${cfg.noun}</button>` : ''}`);
   setBody(`${cmp && cmp.length ? `<div class="c" style="margin-bottom:16px"><div class="hd"><div><h2>Best value comparison</h2><small>Based on total quoted price. Check lead time, scope and terms before deciding; currencies stay separate.</small></div></div>${plainTable(cmp)}</div>` : ''}
-    <div class="tools"><div class="sbox"><input id="q" placeholder="Search ${esc(PAGES[key][0].toLowerCase())}…" aria-label="Search"></div>
+    ${key === 'audit' ? '<div class="tools" id="auditfilters"></div>' : ''}<div class="tools"><div class="sbox"><input id="q" placeholder="Search ${esc(PAGES[key][0].toLowerCase())}…" aria-label="Search"></div>
     ${cfg.views.length > 1 ? `<div class="seg" id="views">${cfg.views.map(v => `<button data-v="${v}">${v}</button>`).join('')}</div>` : ''}<span class="count" id="count"></span></div>
     <div class="chips" id="filters" style="margin:-4px 4px 16px"></div><div id="recs"></div><div class="bulkbar hidden" id="bulkbar"></div>`);
   const paint = () => {
@@ -449,22 +499,40 @@ async function records(key) {
     else if (showFilters && state.filter === 'awaiting me') list = list.filter(r => r.mine);
     else if (showFilters && state.filter !== 'all') list = list.filter(r => r[cfg.status] === state.filter);
     if (state.view === 'table' && state.sort) { const { k, dir } = state.sort; list = [...list].sort((a, b) => { const x = a[k], y = b[k], nx = Number(x), ny = Number(y); return (x !== '' && y !== '' && !isNaN(nx) && !isNaN(ny) ? nx - ny : String(x ?? '').localeCompare(String(y ?? ''))) * dir; }); }
-    $('#count').textContent = `${list.length} ${list.length === 1 ? 'record' : 'records'}`;
+    const total = list.length;
+    list = list.slice(0, state.limit);
+    $('#count').textContent = `${total} ${total === 1 ? 'record' : 'records'}${total > list.length ? ` · showing ${list.length}` : ''}`;
     let html;
     if (!rows.length) html = empty(`No ${PAGES[key][0].toLowerCase()} yet`, canCreate ? `Use “New ${cfg.noun}” to add the first one.` : 'They appear here automatically.');
     else if (state.view === 'board') html = `<div class="board">${cfg.statuses.map(s => { const c = list.filter(r => r[cfg.status] === s); return `<div class="col" data-s="${s}"><h4>${human(s)} <em>${c.length}</em></h4>${c.map(r => cardHtml(key, r, cfg)).join('') || '<div class="mt">Nothing here</div>'}</div>`; }).join('')}</div>`;
     else if (state.view === 'timeline') html = auditHtml(list);
     else if (state.view === 'cards') html = list.length ? `<div class="cards">${list.map(r => cardHtml(key, r, cfg)).join('')}</div>` : empty('No matching records');
     else html = tableHtml(key, list, cfg, state.sort);
+    if (total > list.length) html += `<div class="more"><button class="btn" data-act="showmore">Show ${Math.min(100, total - list.length)} more</button><span>${list.length} of ${total} shown</span></div>`;
     $('#recs').innerHTML = html;
     shownIds = list.map(r => r.id);
     renderBulkBar();
   };
   repaintRecords = paint;
-  $('#q').oninput = e => { state.q = e.target.value; paint(); };
+  $('#q').oninput = e => { state.q = e.target.value; state.limit = 100; paint(); };
   $('#views') && ($('#views').onclick = e => { const b = e.target.closest('[data-v]'); if (b) { state.view = b.dataset.v; store.set('aos-view-' + key, state.view); paint(); } });
   $('#filters').onclick = e => { const b = e.target.closest('[data-f]'); if (b) { state.filter = b.dataset.f; paint(); } };
   $('#recs').addEventListener('click', e => { const th = e.target.closest('th[data-sort]'); if (!th) return; const k = th.dataset.sort; state.sort = state.sort && state.sort.k === k ? { k, dir: -state.sort.dir } : { k, dir: 1 }; paint(); });
+  showMoreRecords = () => { state.limit += 100; paint(); };
+  if (key === 'audit') {
+    const facets = await api('audit/facets').catch(() => ({ actors: [], actions: [], entities: [] }));
+    const pick = (id, label, list) => `<div class="field" style="min-width:140px"><label for="${id}">${label}</label><select id="${id}"><option value="">All</option>${list.map(v => `<option value="${esc(v)}">${esc(human(v))}</option>`).join('')}</select></div>`;
+    $('#auditfilters').innerHTML = pick('af_actor', 'Person', facets.actors) + pick('af_action', 'Action', facets.actions) + pick('af_entity', 'Record type', facets.entities)
+      + '<div class="field"><label for="af_from">From</label><input type="date" id="af_from"></div><div class="field"><label for="af_to">To</label><input type="date" id="af_to"></div><button class="btn" id="af_reset">Reset</button>';
+    const reload = async () => {
+      const p = new URLSearchParams();
+      [['actor', 'af_actor'], ['action', 'af_action'], ['entity', 'af_entity'], ['since', 'af_from'], ['until', 'af_to']].forEach(([k, id]) => { const v = $('#' + id).value; if (v) p.set(k, v); });
+      p.set('limit', '2000');
+      try { rows = await api('audit?' + p.toString()); currentRows = rows; state.limit = 100; paint(); } catch (ex) { msg(ex.message); }
+    };
+    $('#auditfilters').onchange = reload;
+    $('#af_reset').onclick = () => { ['af_actor', 'af_action', 'af_entity', 'af_from', 'af_to'].forEach(id => { $('#' + id).value = ''; }); reload(); };
+  }
   paint();
   if (window._pendingSearch) { state.q = window._pendingSearch; $('#q').value = state.q; window._pendingSearch = null; paint(); }
 }
@@ -587,21 +655,24 @@ function openDecision(id, decision) {
 
 /* ---------- automation ---------- */
 async function automationView() {
-  const [c, runs] = await Promise.all([api('automation/settings'), api('automation/runs')]);
+  const [c, runs, ds] = await Promise.all([api('automation/settings'), api('automation/runs'), api('digest/status').catch(() => ({ smtp: false }))]);
   const rule = (n, t, d) => `<label class="rule"><span><b>${t}</b><small>${d}</small></span><span class="sw"><input type="checkbox" name="${n}" ${c[n] ? 'checked' : ''}><span></span></span></label>`;
   setActions(can.write ? '<button class="btn pri" id="runNow" data-act="runrules">Run all active rules</button>' : '');
   setBody(`<div class="bento"><section class="c s7"><div class="hd"><div><h2>Automation rules</h2><small>Choose which controls run every five minutes</small></div></div>
     <form id="aform" class="stack">${rule('task_rule', 'Task deadline monitoring', 'Alerts for overdue and upcoming tasks')}${rule('contract_rule', 'Contract obligation monitoring', 'Tracks upcoming contractual commitments')}${rule('revenue_rule', 'Revenue leakage detection', 'Compares billed amounts with approved tariffs')}${rule('auto_resolve', 'Automatic resolution', 'Closes alerts when the underlying condition clears')}
     <div class="field"><label for="dd">Early-warning window (days)</label><input id="dd" name="due_days" type="number" min="1" max="90" value="${c.due_days}"></div>
     <div class="field"><label for="sat">Require a second approver at or above this amount (0 = off)</label><input id="sat" name="second_approval_threshold" type="number" min="0" step="1" value="${c.second_approval_threshold}"></div>
-    <div class="field"><label for="esc">Flag a pending request as stuck after this many days (0 = off)</label><input id="esc" name="approval_escalate_days" type="number" min="0" max="60" step="1" value="${c.approval_escalate_days}"></div><div><button class="btn dark" type="submit">Save automation settings</button></div></form></section>
+    <div class="field"><label for="esc">Flag a pending request as stuck after this many days (0 = off)</label><input id="esc" name="approval_escalate_days" type="number" min="0" max="60" step="1" value="${c.approval_escalate_days}"></div>
+    <div class="field"><label>Second approver limits by category (blank = use the general limit, 0 = never required)</label><div class="grid3">${CATEGORIES.map(k => `<div class="field"><label for="cl_${k}">${k}</label><input id="cl_${k}" data-cat="${k}" type="number" min="0" step="1" placeholder="General" value="${c.category_thresholds && c.category_thresholds[k] !== undefined ? c.category_thresholds[k] : ''}"></div>`).join('')}</div></div>
+    ${rule('digest_enabled', 'Daily digest', `Saved to the outbox folder for people who opted in${ds.smtp ? ', and emailed to them' : '. Email is not set up on the server, so nothing is sent'}.`)}
+    <div class="field"><label for="dh">Send digests after this hour of the day (0 to 23)</label><input id="dh" name="digest_hour" type="number" min="0" max="23" value="${c.digest_hour}"></div><div><button class="btn dark" type="submit">Save automation settings</button></div></form></section>
     <section class="c s5"><div class="hd"><div><h2>Last run</h2><small>Manual and scheduled scans use the same rules</small></div></div><div class="note" id="runResult">${runs[0] ? `${esc(runs[0].started_at.slice(0, 19).replace('T', ' '))} · ${runs[0].detected} detected, ${runs[0].created} new, ${runs[0].resolved} resolved (${esc(runs[0].trigger)})` : 'No scan has run yet.'}</div><p style="margin-top:14px">Automations create reviewable exceptions. They never send messages, approve purchases or move money.</p></section>
     <section class="c s12"><div class="hd"><div><h2>Run history</h2><small>Detection, creation and auto-resolution results</small></div></div>${plainTable(runs)}</section></div>`);
   if (!can.admin) $$('#aform input, #aform button').forEach(x => { x.disabled = true; });
   $('#aform').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
-    try { await api('automation/settings', { method: 'POST', body: JSON.stringify({ task_rule: f.has('task_rule'), contract_rule: f.has('contract_rule'), revenue_rule: f.has('revenue_rule'), auto_resolve: f.has('auto_resolve'), due_days: Number(f.get('due_days')), second_approval_threshold: Number(f.get('second_approval_threshold') || 0), approval_escalate_days: Number(f.get('approval_escalate_days') || 0) }) }); msg('Automation settings saved'); }
+    try { await api('automation/settings', { method: 'POST', body: JSON.stringify({ task_rule: f.has('task_rule'), contract_rule: f.has('contract_rule'), revenue_rule: f.has('revenue_rule'), auto_resolve: f.has('auto_resolve'), due_days: Number(f.get('due_days')), second_approval_threshold: Number(f.get('second_approval_threshold') || 0), approval_escalate_days: Number(f.get('approval_escalate_days') || 0), category_thresholds: Object.fromEntries($$('[data-cat]').filter(i => i.value !== '').map(i => [i.dataset.cat, Number(i.value)])), digest_enabled: f.has('digest_enabled'), digest_hour: Number(f.get('digest_hour') || 0) }) }); msg('Automation settings saved'); }
     catch (ex) { msg(ex.message); }
   };
 }
@@ -648,8 +719,8 @@ function importsView() {
   let table = 'tasks';
   setBody(`<div class="bento"><section class="c s7"><div class="hd"><div><h2>Import a spreadsheet</h2><small>Export the sheet as CSV using the column names shown on the right</small></div></div>
     <div class="grp">1 · Destination</div><div class="chips" id="dest" style="margin-bottom:18px">${Object.keys(defs).map(k => `<button data-t="${k}" class="${k === table ? 'on' : ''}">${esc(PAGES[k][0])}</button>`).join('')}</div>
-    <div class="grp">2 · CSV file</div><label class="drop" id="drop"><b id="dname">Drop a CSV here or click to browse</b>Other columns are ignored. No deduplication is performed.<input id="file" type="file" accept=".csv,text/csv"></label>
-    <div class="acts" style="margin-top:16px"><button class="btn pri" id="upload">Import records</button></div><div id="importResult" style="margin-top:16px"></div></section>
+    <div class="grp">2 · CSV file</div><label class="drop" id="drop"><b id="dname">Drop a CSV here or click to browse</b>Other columns are ignored. Rows that already exist are skipped, so importing the same file twice is safe.<input id="file" type="file" accept=".csv,text/csv"></label>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-size:13px"><input type="checkbox" id="dupes"> Import duplicates anyway</label><div class="acts" style="margin-top:14px"><button class="btn" id="preview">Preview first</button><button class="btn pri" id="upload">Import records</button></div><div id="importResult" style="margin-top:16px"></div></section>
     <section class="c s5"><div class="hd"><div><h2>Column names</h2><small>Required fields are marked *</small></div></div>${Object.entries(defs).map(([k, v]) => `<details ${k === table ? 'open' : ''}><summary>${esc(PAGES[k][0])}</summary><code>${v.map(x => x[0] + (x[3] ? '*' : '')).join(', ')}</code></details>`).join('')}</section></div>`);
   $('#dest').onclick = e => { const b = e.target.closest('[data-t]'); if (b) { table = b.dataset.t; $$('#dest button').forEach(x => x.classList.toggle('on', x === b)); } };
   const file = $('#file'), drop = $('#drop');
@@ -657,15 +728,19 @@ function importsView() {
   ['dragenter', 'dragover'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', e => { if (e.dataTransfer.files[0]) { file.files = e.dataTransfer.files; file.onchange(); } });
-  $('#upload').onclick = async () => {
+  const run = async dry => {
     const f = file.files[0];
     if (!f) return msg('Select a CSV file');
     try {
-      const r = await api('import', { method: 'POST', body: JSON.stringify({ table, csv: await f.text() }) });
-      $('#importResult').innerHTML = `<div class="note"><b>${r.inserted}</b> imported · <b>${r.failed}</b> failed</div>${r.errors.length ? `<pre style="margin-top:10px">${esc(r.errors.map(x => `Line ${x.line}: ${x.error}`).join('\n'))}</pre>` : ''}`;
-      msg(`Imported ${r.inserted} records`);
-    } catch (e) { msg('Import failed: ' + e.message); }
+      const allow = $('#dupes').checked;
+      const r = await api('import', { method: 'POST', body: JSON.stringify({ table, csv: await f.text(), dry_run: dry, skip_duplicates: !allow }) });
+      const lead = dry ? `<b>${r.inserted}</b> row${r.inserted === 1 ? '' : 's'} would be added` : `<b>${r.inserted}</b> added`;
+      $('#importResult').innerHTML = `<div class="note">${lead} · <b>${r.duplicates}</b> duplicate${r.duplicates === 1 ? '' : 's'} ${allow ? 'included' : 'skipped'} · <b>${r.failed}</b> with problems</div>${r.preview.length ? `<p style="margin:12px 0 4px;font-size:12.5px;color:var(--muted)">${dry ? 'First rows that would be added' : 'First rows added'}:</p>${plainTable(r.preview)}` : ''}${r.errors.length ? `<pre style="margin-top:10px">${esc(r.errors.map(x => `Line ${x.line}: ${x.error}`).join('\n'))}</pre>` : ''}`;
+      msg(dry ? 'Preview ready. Nothing was imported.' : `Imported ${r.inserted} records`);
+    } catch (e) { msg((dry ? 'Preview' : 'Import') + ' failed: ' + e.message); }
   };
+  $('#preview').onclick = () => run(true);
+  $('#upload').onclick = () => run(false);
 }
 async function loadDemo() {
   if (!confirm('Add demonstration records to your local database?')) return;
@@ -825,10 +900,14 @@ function awayHtml() {
     ? `<div class="note"><b>${esc(person(u.delegate_to))}</b> is covering your approvals until <b>${esc(u.delegate_until)}</b>.</div><div class="acts"><button type="button" class="btn" data-act="endaway">End cover now</button></div>`
     : `<div class="note">Going away? Hand your approvals to a colleague. They can decide requests assigned to you until the date you choose, then it ends by itself.</div><select id="aw_delegate" aria-label="Who covers for you"><option value="">Choose a colleague…</option>${options}</select><input id="aw_until" type="date" value="${nextWeek}" min="${isoToday()}" aria-label="Back on"><div class="acts"><button type="button" class="btn" data-act="startaway">Start cover</button></div>`}</div>`;
 }
-function openAccount() {
+function profileHtml(u, ds) {
+  return `<div class="field"><label>Daily digest</label><div class="note">${ds && ds.smtp ? 'A short email summary of what needs you, once a day.' : 'Email is not set up on this server, so digests are only saved to its outbox folder.'}${ds && !ds.enabled ? ' An administrator has not switched the daily digest on yet.' : ''}</div><input id="pf_email" type="email" value="${esc(u.email || '')}" placeholder="Your email address (optional)" aria-label="Email address"><label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" id="pf_digest" ${u.digest_optin ? 'checked' : ''}> Send me the daily digest</label><div class="acts"><button type="button" class="btn" data-act="saveprofile">Save</button><button type="button" class="btn" data-act="digestpreview">Preview</button><button type="button" class="btn" data-act="digesttest">Send me one now</button></div><pre id="digestPrev" class="pre hidden"></pre></div>`;
+}
+async function openAccount() {
   if (!ME.accounts) return openSetup();
   const u = ME.user;
-  drawer('Account', `<div class="stack"><div class="field"><label>Name</label><div><b>${esc(u.display_name)}</b></div></div><div class="field"><label>Username</label><div>@${esc(u.username)}</div></div><div class="field"><label>Role</label><div><span class="badge blue">${esc(u.role)}</span></div></div>${rank() >= 1 ? awayHtml() : ''}<div class="acts"><button type="button" class="btn" data-act="changepw">Change password</button><button type="button" class="btn bad" data-act="logoutall">Sign out of all devices</button></div><div class="note">Sessions last 12 hours. Approvals assigned to ${u.display_name.toLowerCase() === u.username.toLowerCase() ? `“${esc(u.display_name)}”` : `“${esc(u.display_name)}” or “${esc(u.username)}”`} show up as yours.</div></div>`,
+  const ds = await api('digest/status').catch(() => null);
+  drawer('Account', `<div class="stack"><div class="field"><label>Name</label><div><b>${esc(u.display_name)}</b></div></div><div class="field"><label>Username</label><div>@${esc(u.username)}</div></div><div class="field"><label>Role</label><div><span class="badge blue">${esc(u.role)}</span></div></div>${rank() >= 1 ? awayHtml() : ''}${profileHtml(u, ds)}<div class="acts"><button type="button" class="btn" data-act="changepw">Change password</button><button type="button" class="btn bad" data-act="logoutall">Sign out of all devices</button></div><div class="note">Sessions last 12 hours. Approvals assigned to ${u.display_name.toLowerCase() === u.username.toLowerCase() ? `“${esc(u.display_name)}”` : `“${esc(u.display_name)}” or “${esc(u.username)}”`} show up as yours.</div></div>`,
   'Sign out', async () => {
     await api('auth/logout', { method: 'POST', body: '{}' });
     ME.user = null; showLogin();
@@ -854,12 +933,13 @@ function openUserForm(u) {
   if (!u) f.push(fieldHtml(['username', 'Username', 'text', 1]));
   f.push(fieldHtml(['display_name', 'Display name', 'text', 1], u ? u.display_name : ''));
   f.push(fieldHtml(['role', 'Role', 'select:viewer,member,manager,admin'], u ? u.role : 'member'));
+  if (u) f.push(fieldHtml(['email', 'Email address (optional)', 'email'], u.email || ''));
   if (u) f.push(fieldHtml(['active', 'Status', 'select:yes,no'], u.active ? 'yes' : 'no'));
   f.push(fieldHtml(['password', u ? 'New password (leave blank to keep)' : 'Password (10+ characters)', 'password', !u]));
   f.push('<div class="note">Approvals match on the username or display name, so keep display names the same as the names people are assigned as approvers.</div>');
   drawer(u ? `Edit ${u.display_name}` : 'New user', f.join(''), u ? 'Save changes' : 'Create user', async d => {
     if (u) {
-      const body = { display_name: d.display_name, role: d.role, active: d.active === 'yes' };
+      const body = { display_name: d.display_name, role: d.role, active: d.active === 'yes', email: d.email || '' };
       if (d.password) body.password = d.password;
       await api(`users/${u.id}`, { method: 'PUT', body: JSON.stringify(body) });
       if (ME.user && u.id === ME.user.id) await refreshMe();
@@ -922,6 +1002,21 @@ document.addEventListener('click', async e => {
   if (act === 'edit') { const row = currentRows.find(r => Number(r.id) === Number(id)); return row ? openForm(active, row) : msg('Record not found'); }
   if (act === 'dup') { const row = currentRows.find(r => Number(r.id) === Number(id)); return row ? openForm(active, null, row) : msg('Record not found'); }
   if (act === 'withdraw') return openWithdraw(id);
+  if (act === 'comments') return openComments(active, id);
+  if (act === 'delcomment') { try { await api('comments/' + a.dataset.cid, { method: 'DELETE' }); await window._drawComments(); } catch (ex) { msg(ex.message); } return; }
+  if (act === 'showmore') return showMoreRecords && showMoreRecords();
+  if (act === 'saveprofile') {
+    try { await api('auth/profile', { method: 'POST', body: JSON.stringify({ email: $('#pf_email').value, digest: $('#pf_digest').checked }) }); await refreshMe(); msg('Digest settings saved'); openAccount(); } catch (ex) { msg(ex.message); }
+    return;
+  }
+  if (act === 'digestpreview') {
+    try { const d = await api('digest/preview'); const el = $('#digestPrev'); el.textContent = `${d.subject}\n\n${d.body}`; el.classList.remove('hidden'); } catch (ex) { msg(ex.message); }
+    return;
+  }
+  if (act === 'digesttest') {
+    try { const r = await api('digest/test', { method: 'POST', body: '{}' }); msg(r.emailed ? 'Digest emailed' : r.reason || 'Digest saved to the outbox folder'); } catch (ex) { msg(ex.message); }
+    return;
+  }
   if (act === 'resubmit') { const row = currentRows.find(r => Number(r.id) === Number(id)); return row ? openForm('approvals', null, { ...row, _resubmit: true }) : msg('Record not found'); }
   if (act === 'del') {
     const key = active, row = currentRows.find(r => Number(r.id) === Number(id));
