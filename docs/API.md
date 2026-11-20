@@ -6,6 +6,28 @@
 
 **POST** `/api/status`: `{"table":"tasks|contracts|exceptions","id":1,"status":"open|in_progress|blocked|done"}`.
 
+**GET** `/api/approvals`, `/api/recurring_tasks`, `/api/backup`, `/api/automation/runs`, `/api/reports/executive`.
+
+**POST** `/api/approvals`, `/api/recurring_tasks`: create records. **POST** `/api/approvals/decision`: `{"id":1,"decision":"approved|rejected","comment":""}` (final, one decision per request; approver must differ from requester).
+
+**POST** `/api/restore`: a file produced by `/api/backup`. Replaces tasks, approvals, quotations, contracts, tariffs, transactions, exceptions and run history in one transaction; an invalid file changes nothing.
+
+**GET** `/api/search?q=term`: records matching `term` (2-100 characters) across tasks, approvals, contracts, quotations, rates, billing, recurring tasks and exceptions.
+
+**GET** `/api/backups` lists stored backups; **POST** `/api/backups` creates one now; **POST** `/api/backups/restore` with `{"name":"backup-2026-01-01.json"}` restores a stored one.
+
+Writes must send `Content-Type: application/json` and, if an `Origin` header is present, it must match the `Host`. Set `AUTOMATION_PASSWORD` to require HTTP Basic authentication on every request.
+
+**Accounts.** `GET /api/auth/me` returns `{accounts, user}`. While no accounts exist the API is open (single-user mode). `POST /api/auth/setup` `{username, display_name, password}` creates the first admin once and signs in. `POST /api/auth/login` `{username, password}` sets an HttpOnly, SameSite=Strict session cookie (12 hours); `POST /api/auth/logout` ends it. Once accounts exist every other API call needs the cookie (401 otherwise, with `login: true`). Passwords must be 10 to 200 characters.
+
+**Users (admin only).** `GET /api/users`, `POST /api/users` `{username, display_name, role, password}`, `PUT /api/users/<id>` with any of `display_name`, `role`, `active`, `password`. The last active admin cannot be demoted or disabled. Roles: viewer < member < manager < admin. Viewers are read-only; members write; managers also delete; admins also manage users, settings, backups and restore (these return 403 for lower roles).
+
+**Approvals.** `GET /api/approvals` adds `steps`, `progress`, `awaiting` and `can_decide` (for the calling user). Create and edit accept `second_approver`. `POST /api/approvals/decision` decides the current step only if you are assigned to it (or an admin) and it is not your own request; it returns `{status, stage, stages}` where `status` stays `pending` until the last step approves. Requests at or above the `second_approval_threshold` setting (0 = off) must have a second approver. A request that already has a decided step can no longer be edited.
+
+**People and notifications.** `GET /api/people` lists active users as `{username, display_name}` for any signed-in user (used for approver pickers). `GET /api/notifications` returns what needs the caller's attention as `[{key, kind, severity, title, detail, page}]`, where `kind` is `approval`, `stuck`, `outcome`, `task` or `contract`, most urgent first. `GET /api/overview` adds `awaiting_me`, the number of pending approval steps assigned to the caller, and `GET /api/approvals` adds `mine` per request.
+
+Once accounts exist, `POST /api/approvals` sets `requester` to the caller (any value you send is ignored) and requires `approver` and `second_approver` to be active users (display names are accepted and stored as usernames). `PUT` and `DELETE` on an approval return 403 unless the caller is the requester or an admin. The `approval_escalate_days` setting (0 to 60, default 3) controls when pending requests are flagged as stuck.
+
 **POST** `/api/scan`: `{}` — scans due dates and tariff underbilling.
 
 **POST** `/api/import`: `{"table":"tasks","csv":"title,department,...\n..."}`.
