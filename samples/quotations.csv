@@ -1,0 +1,2 @@
+rfq,supplier,item,quantity,unit_price,currency,lead_days,terms
+RFQ-01,Supplier A,Sample Item,3,110,USD,7,EXW
