@@ -20,6 +20,7 @@ LOOPBACK=('127.0.0.1','localhost','::1')
 BACKUP_DIR=DB.parent/'backups'
 
 BACKUP_KEEP=14
+WRITE_LIMIT=int(os.getenv('AUTOMATION_WRITE_LIMIT','300'))   # changes per client per minute; 0 turns it off
 def _scrypt_cost():
     """Password hashing cost. Keep the default in real use; AUTOMATION_SCRYPT_N exists so tests run quickly."""
     try:n=int(os.getenv('AUTOMATION_SCRYPT_N','16384'))
@@ -33,6 +34,7 @@ LOCK=threading.RLock()
 
 STATUSES={'open','in_progress','blocked','done'}
 
-DEFAULT_SETTINGS={'task_rule':'1','contract_rule':'1','revenue_rule':'1','auto_resolve':'1','due_days':'14','scan_minutes':'5','second_approval_threshold':'0','approval_escalate_days':'3'}
+DEFAULT_SETTINGS={'task_rule':'1','contract_rule':'1','revenue_rule':'1','auto_resolve':'1','due_days':'14','scan_minutes':'5','second_approval_threshold':'0','approval_escalate_days':'3','category_thresholds':'{}','digest_enabled':'0','digest_hour':'8'}
 
-NUMERIC_SETTINGS={'due_days','scan_minutes','second_approval_threshold','approval_escalate_days'}
+NUMERIC_SETTINGS={'due_days','scan_minutes','second_approval_threshold','approval_escalate_days','digest_hour'}
+CATEGORIES=('Purchase','Operational','Contract','Payment','Other')

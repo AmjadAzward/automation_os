@@ -5,6 +5,7 @@ import hmac
 import json
 import sqlite3
 import threading
+import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer
@@ -18,6 +19,20 @@ from .records import add_row, bulk_action, bulk_exception_status, delete_row, im
 from .reports import attention_queue, compare_quotes, executive_report, insights, overview
 from .backups import auto_backup, backup_export, list_backups, restore_backup, restore_stored_backup
 from .automation import ai, scan, scheduler
+
+_WRITES={}
+def allow_write(key):
+    """Sliding one-minute window of changes per client, so a runaway script or a stuck loop cannot flood the database."""
+    limit=config.WRITE_LIMIT
+    if not limit:return True
+    t=time.time()
+    recent=[x for x in _WRITES.get(key,[]) if t-x<60]
+    if len(recent)>=limit:
+        _WRITES[key]=recent;return False
+    recent.append(t);_WRITES[key]=recent
+    if len(_WRITES)>5000:
+        for k in [k for k,v in _WRITES.items() if not v or t-v[-1]>60]:_WRITES.pop(k,None)
+    return True
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,fmt,*args):print('[HTTP]',fmt%args)
@@ -66,6 +81,7 @@ class Handler(BaseHTTPRequestHandler):
             origin=self.headers.get('Origin')
             if origin is not None and urlparse(origin).netloc.lower()!=host:return self.deny(403,'Cross-origin request blocked')
             if self.command in ('POST','PUT') and not (self.headers.get('Content-Type') or '').lower().startswith('application/json'):return self.deny(415,'Content-Type must be application/json')
+            if not allow_write((self.client_address[0],self.session_token() or '')):return self.deny(429,'Too many changes in a short time. Please wait a moment.',{'Retry-After':'30'})
         return True
     def json_body(self):
         length=int(self.headers.get('Content-Length','0'))

@@ -1,11 +1,12 @@
 """Backup export, restore and the automatic daily backups."""
+import os
 from . import config
 import json
 import re
 import sqlite3
 from datetime import datetime
 from .db import audit, db, now, read_table
-from .settings import automation_settings
+from .settings import automation_settings, save_automation_settings
 
 def backup_export():
     tables=('tasks','recurring_tasks','approvals','approval_steps','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs')
@@ -20,7 +21,13 @@ def restore_backup(obj):
         if t in data and not isinstance(data[t],list):raise ValueError(f'Backup table {t} is malformed')
     try:_restore_tables(data,counts)
     except sqlite3.Error as e:raise ValueError(f'Backup contains invalid records, nothing was changed ({e})') from e
-    return {'ok':True,'restored':counts}
+    restored,skipped=0,[]
+    if isinstance(obj.get('settings'),dict):                 # settings are restored one by one; a bad value never blocks the data
+        for key,value in obj['settings'].items():
+            if key not in config.DEFAULT_SETTINGS:continue
+            try:save_automation_settings({key:value});restored+=1
+            except (ValueError,TypeError):skipped.append(key)
+    return {'ok':True,'restored':counts,'settings_restored':restored,'settings_skipped':skipped}
 
 def _restore_tables(data,counts):
     with config.LOCK,db() as c:
@@ -44,6 +51,8 @@ def auto_backup(force=False):
     path=config.BACKUP_DIR/f'backup-{stamp}.json'
     if path.exists():return None
     tmp=path.with_suffix('.tmp');tmp.write_text(json.dumps(backup_export(),ensure_ascii=False),encoding='utf-8');tmp.replace(path)
+    try:os.chmod(path,0o600);os.chmod(config.BACKUP_DIR,0o700)   # backups hold business data: owner-only where the OS supports it
+    except OSError:pass
     for old in sorted(config.BACKUP_DIR.glob('backup-*.json'),key=lambda p:p.stat().st_mtime,reverse=True)[config.BACKUP_KEEP:]:old.unlink()
     return path.name
 

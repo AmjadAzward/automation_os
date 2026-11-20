@@ -16,8 +16,11 @@ def check_approval_rules(p):
     if second:
         if second==requester:raise ValueError('The second approver must be a different person from the requester')
         if second==first:raise ValueError('The second approver must be a different person from the first approver')
-    limit=automation_settings()['second_approval_threshold']
-    if limit and money(p.get('amount','0'))>=limit and not second:raise ValueError(f'Requests of {limit:,} or more need a second approver')
+    settings=automation_settings()
+    category=str(p.get('category') or 'Operational')
+    limits=settings['category_thresholds']
+    limit=limits[category] if category in limits else settings['second_approval_threshold']      # a category limit overrides the general one
+    if limit and money(p.get('amount','0'))>=limit and not second:raise ValueError(f'{category} requests of {limit:,} or more need a second approver')
 
 def create_steps(c,ident,approver,second=''):
     c.execute('DELETE FROM approval_steps WHERE approval_id=?',(ident,))
