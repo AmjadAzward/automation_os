@@ -13,7 +13,8 @@ from urllib.parse import parse_qs
 from urllib.parse import urlparse
 from .db import CTX, audit, db, init, read_table, today
 from .settings import automation_runs, automation_settings, save_automation_settings
-from .accounts import AuthError, COOKIE, Forbidden, authenticate, change_password, check_access, create_user, end_session, list_users, logout_all, require_role, session_cookie, session_user, start_session, update_user, user_count
+from .accounts import AuthError, COOKIE, Forbidden, authenticate, change_password, require_account, set_profile, check_access, create_user, end_session, list_users, logout_all, require_role, session_cookie, session_user, start_session, update_user, user_count
+from .digest import build_digest, deliver, smtp_configured
 from .comments import add_comment, all_notifications, comment_counts, delete_comment, list_comments
 from .approvals import approvals_list, decide_approval, delete_approval_guard, edit_approval_guard, notifications, people, prepare_approval_payload, set_delegation, withdraw_approval
 from .records import add_row, bulk_action, bulk_exception_status, delete_row, import_csv, search, update_row, update_status
@@ -115,6 +116,8 @@ class Handler(BaseHTTPRequestHandler):
                 q=parse_qs(urlparse(self.path).query);g=lambda k:(q.get(k) or [''])[0]
                 if path=='/api/comments/counts':return self.send(comment_counts(g('entity')))
                 return self.send(list_comments(g('entity'),g('id') or 0))
+            if path=='/api/digest/preview':return self.send(build_digest(self.user))
+            if path=='/api/digest/status':return self.send({'enabled':automation_settings()['digest_enabled'],'hour':automation_settings()['digest_hour'],'smtp':smtp_configured()})
             if path=='/api/search':return self.send(search((parse_qs(urlparse(self.path).query).get('q') or [''])[0]))
             if path=='/api/backups':return self.send(list_backups())
             if path=='/api/overview':
@@ -149,6 +152,9 @@ class Handler(BaseHTTPRequestHandler):
                 end_session(self.session_token());return self.send({'ok':True},headers={'Set-Cookie':session_cookie('',0,secure=self.secure())})
             if path=='/api/auth/delegate':return self.send(set_delegation(self.user,obj.get('delegate',''),obj.get('until','')))
             if path=='/api/comments':return self.send(add_comment(obj.get('entity'),obj.get('id'),obj.get('body'),self.user))
+            if path=='/api/digest/test':return self.send(deliver(self.user,build_digest(self.user)))
+            if path=='/api/auth/profile':
+                require_account(self.user);return self.send(set_profile(self.user,obj.get('email',''),bool(obj.get('digest'))))
             if path=='/api/bulk':
                 if obj.get('action')=='delete':require_role(self.user,'manager')
                 return self.send(bulk_action(obj.get('table'),obj.get('ids'),obj.get('action'),obj.get('status')))

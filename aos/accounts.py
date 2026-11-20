@@ -16,6 +16,7 @@ ROLES=('viewer','member','manager','admin')
 
 RANK={r:i for i,r in enumerate(ROLES)}
 
+EMAIL_RE=re.compile(r'[^@\s]{1,64}@[^@\s]{1,200}\.[^@\s]{2,}')
 USERNAME_RE=re.compile(r'[A-Za-z0-9._-]{3,32}')
 
 PUBLIC_GET={'/api/health','/api/auth/me'}
@@ -53,7 +54,7 @@ def dummy_hash():
     return _DUMMY[0]
 
 def public_user(r):
-    return {'id':r['id'],'username':r['username'],'display_name':r['display_name'],'role':r['role'],'active':bool(r['active']),'created_at':r['created_at'],'delegate_to':r['delegate_to'] if r['delegate_until']>=today() else '','delegate_until':r['delegate_until'] if r['delegate_until']>=today() else ''}
+    return {'id':r['id'],'username':r['username'],'display_name':r['display_name'],'role':r['role'],'active':bool(r['active']),'created_at':r['created_at'],'delegate_to':r['delegate_to'] if r['delegate_until']>=today() else '','delegate_until':r['delegate_until'] if r['delegate_until']>=today() else '','email':r['email'],'digest_optin':bool(r['digest_optin']),'digest_sent':r['digest_sent']}
 
 def user_count():
     with db() as c:return c.execute('SELECT COUNT(*) FROM users').fetchone()[0]
@@ -88,6 +89,7 @@ def update_user(ident,row):
     if 'role' in row:
         if row['role'] not in ROLES:raise ValueError('Role must be viewer, member, manager or admin')
         sets['role']=row['role']
+    if 'email' in row:sets['email']=_clean_email(row['email'])
     if 'active' in row:sets['active']=1 if row['active'] in (True,1,'1','true','yes','on') else 0
     if row.get('password'):
         check_password_rules(row['password']);sets['password_hash']=hash_password(row['password'])
@@ -102,6 +104,20 @@ def update_user(ident,row):
         if not new_active or 'password_hash' in sets:c.execute('DELETE FROM sessions WHERE user_id=?',(ident,))
         audit(c,'user_update','users',{'id':ident,'changed':[k for k in sets if k!='password_hash']+(['password'] if 'password_hash' in sets else [])})
         return public_user(c.execute('SELECT * FROM users WHERE id=?',(ident,)).fetchone())
+
+def _clean_email(value):
+    value=str(value or '').strip()
+    if value and (len(value)>120 or not EMAIL_RE.fullmatch(value)):raise ValueError('That does not look like an email address')
+    return value
+
+def set_profile(user,email,digest):
+    """Your own email address and whether you want the daily digest."""
+    require_account(user)
+    address=_clean_email(email)
+    with config.LOCK,db() as c:
+        c.execute('UPDATE users SET email=?,digest_optin=? WHERE id=?',(address,1 if digest else 0,user['id']))
+        audit(c,'profile_update','users',{'id':user['id'],'digest':bool(digest),'has_email':bool(address)})   # the address itself is not logged
+        return public_user(c.execute('SELECT * FROM users WHERE id=?',(user['id'],)).fetchone())
 
 def throttle_check(key):
     entry=FAILS.get(key)
@@ -176,7 +192,7 @@ def session_cookie(token,max_age=SESSION_SECONDS,secure=False):
 
 def required_role(method,path):
     if method=='DELETE' and path.startswith('/api/comments/'):return 'member'      # the function checks it is your own comment
-    if path in ('/api/auth/password','/api/auth/logout-all'):return 'viewer'
+    if path in ('/api/auth/password','/api/auth/logout-all','/api/auth/profile','/api/digest/test'):return 'viewer'
     if path.startswith('/api/users'):return 'admin'
     if method=='GET':return 'admin' if path in ('/api/backup','/api/backups') else 'viewer'
     if path in ('/api/automation/settings','/api/restore','/api/backups','/api/backups/restore'):return 'admin'

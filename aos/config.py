@@ -37,5 +37,16 @@ STATUSES={'open','in_progress','blocked','done'}
 DEFAULT_SETTINGS={'task_rule':'1','contract_rule':'1','revenue_rule':'1','auto_resolve':'1','due_days':'14','scan_minutes':'5','second_approval_threshold':'0','approval_escalate_days':'3','category_thresholds':'{}','digest_enabled':'0','digest_hour':'8'}
 
 NUMERIC_SETTINGS={'due_days','scan_minutes','second_approval_threshold','approval_escalate_days','digest_hour'}
+def _int_env(name,default):
+    try:return int(os.getenv(name,str(default)))
+    except ValueError:return default
+SMTP_HOST=os.getenv('AUTOMATION_SMTP_HOST','')          # empty = never send email (the digest is still saved to the outbox)
+SMTP_PORT=_int_env('AUTOMATION_SMTP_PORT',587)
+SMTP_USER=os.getenv('AUTOMATION_SMTP_USER','')
+SMTP_PASSWORD=os.getenv('AUTOMATION_SMTP_PASSWORD','')  # only ever read from the environment, never stored or logged
+SMTP_FROM=os.getenv('AUTOMATION_SMTP_FROM','')
+SMTP_SECURITY=os.getenv('AUTOMATION_SMTP_SECURITY','starttls').strip().lower() if os.getenv('AUTOMATION_SMTP_SECURITY','starttls').strip().lower() in ('starttls','ssl','none') else 'starttls'
+PUBLIC_URL=os.getenv('AUTOMATION_PUBLIC_URL',f'http://{HOST}:{PORT}')
+OUTBOX_DIR=DB.parent/'outbox'
 CATEGORIES=('Purchase','Operational','Contract','Payment','Other')
 COMMENT_ENTITIES=('tasks','approvals','contracts')

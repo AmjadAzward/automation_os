@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / 'aos'
 
 # Lowest layer first. A module may import only from modules earlier in this list.
-LAYERS = ['config', 'db', 'settings', 'accounts', 'approvals', 'comments', 'records', 'reports', 'backups', 'automation', 'server']
+LAYERS = ['config', 'db', 'settings', 'accounts', 'approvals', 'comments', 'digest', 'records', 'reports', 'backups', 'automation', 'server']
 
 
 class StructureTests(unittest.TestCase):
@@ -48,6 +48,13 @@ class StructureTests(unittest.TestCase):
             for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
                 if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module == 'config':
                     self.fail(f'{path.name}: use `from . import config` and read config.NAME')
+
+    def test_the_entry_point_re_exports_every_module(self):
+        """`import app` must keep exposing everything, so a new module has to be added to app.py too."""
+        facade = (ROOT / 'app.py').read_text(encoding='utf-8')
+        for name in LAYERS:
+            if name != 'config':
+                self.assertIn(f'from aos.{name} import *', facade, f'app.py does not re-export aos.{name}')
 
     def test_entry_point_still_exposes_the_public_api(self):
         code = ('import sys; sys.path.insert(0, %r); import app; '

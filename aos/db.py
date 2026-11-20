@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS automation_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,
 CREATE TABLE IF NOT EXISTS recurring_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,department TEXT NOT NULL DEFAULT 'General',owner TEXT DEFAULT '',priority TEXT NOT NULL DEFAULT 'medium',frequency TEXT NOT NULL DEFAULT 'weekly',next_due TEXT NOT NULL,active TEXT NOT NULL DEFAULT 'yes',created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS approvals(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Operational',requester TEXT DEFAULT '',approver TEXT DEFAULT '',amount TEXT DEFAULT '0',currency TEXT NOT NULL DEFAULT 'USD',rationale TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'pending',decision_comment TEXT DEFAULT '',created_at TEXT NOT NULL,decided_at TEXT DEFAULT '',second_approver TEXT DEFAULT '',previous_id INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS approval_steps(id INTEGER PRIMARY KEY AUTOINCREMENT,approval_id INTEGER NOT NULL,stage INTEGER NOT NULL,approver TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',comment TEXT DEFAULT '',decided_by TEXT DEFAULT '',decided_at TEXT DEFAULT '',acting_for TEXT DEFAULT '');
-CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE COLLATE NOCASE,display_name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'member',password_hash TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,delegate_to TEXT NOT NULL DEFAULT '',delegate_until TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE COLLATE NOCASE,display_name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'member',password_hash TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,delegate_to TEXT NOT NULL DEFAULT '',delegate_until TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',digest_optin INTEGER NOT NULL DEFAULT 0,digest_sent TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL,expires_at REAL NOT NULL,created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS comments(id INTEGER PRIMARY KEY AUTOINCREMENT,entity TEXT NOT NULL,entity_id INTEGER NOT NULL,author TEXT NOT NULL,body TEXT NOT NULL,at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity,entity_id);
@@ -53,6 +53,9 @@ def migrate(c):
     if 'second_approver' not in cols('approvals'):c.execute("ALTER TABLE approvals ADD COLUMN second_approver TEXT DEFAULT ''")
     if 'acting_for' not in cols('approval_steps'):c.execute("ALTER TABLE approval_steps ADD COLUMN acting_for TEXT DEFAULT ''")
     if 'delegate_to' not in cols('users'):c.execute("ALTER TABLE users ADD COLUMN delegate_to TEXT NOT NULL DEFAULT ''")
+    if 'email' not in cols('users'):c.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+    if 'digest_optin' not in cols('users'):c.execute("ALTER TABLE users ADD COLUMN digest_optin INTEGER NOT NULL DEFAULT 0")
+    if 'digest_sent' not in cols('users'):c.execute("ALTER TABLE users ADD COLUMN digest_sent TEXT NOT NULL DEFAULT ''")
     if 'delegate_until' not in cols('users'):c.execute("ALTER TABLE users ADD COLUMN delegate_until TEXT NOT NULL DEFAULT ''")
     for r in c.execute("SELECT id,approver FROM approvals WHERE status='pending' AND id NOT IN (SELECT approval_id FROM approval_steps)").fetchall():
         c.execute("INSERT INTO approval_steps(approval_id,stage,approver,status) VALUES(?,1,?,'pending')",(r['id'],r['approver']))

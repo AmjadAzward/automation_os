@@ -11,6 +11,8 @@ from aos.db import *  # noqa: F401,F403
 from aos.settings import *  # noqa: F401,F403
 from aos.accounts import *  # noqa: F401,F403
 from aos.approvals import *  # noqa: F401,F403
+from aos.comments import *  # noqa: F401,F403
+from aos.digest import *  # noqa: F401,F403
 from aos.records import *  # noqa: F401,F403
 from aos.reports import *  # noqa: F401,F403
 from aos.backups import *  # noqa: F401,F403
