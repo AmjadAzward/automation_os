@@ -88,7 +88,7 @@ const ST = ['open', 'in_progress', 'blocked', 'done'];
 const RES = {
   tasks:   { noun: 'task', title: r => r.title, sub: r => [r.department, r.owner].filter(Boolean).join(' · ') || 'Unassigned', status: 'status', statuses: ST, drag: true, date: 'due_date', priority: 'priority', views: ['board', 'cards', 'table'] },
   contracts: { noun: 'contract', title: r => r.contract, sub: r => [r.counterparty, r.owner].filter(Boolean).join(' · '), body: r => r.obligation, status: 'status', statuses: ST, drag: true, date: 'due_date', views: ['board', 'cards', 'table'] },
-  approvals: { noun: 'request', title: r => r.title, sub: r => `${person(r.requester)} → ${[r.approver, r.second_approver].filter(Boolean).map(person).join(' → ')}`, body: r => r.rationale, status: 'status', statuses: ['pending', 'approved', 'rejected'], money: r => [r.amount, r.currency], chips: r => [r.category, r.steps && r.steps.length > 1 ? r.progress : '', r.covering ? 'covering for ' + person(r.awaiting) : ''], views: ['board', 'cards', 'table'] },
+  approvals: { noun: 'request', title: r => r.title, sub: r => `${person(r.requester)} → ${[r.approver, r.second_approver].filter(Boolean).map(person).join(' → ')}`, body: r => r.rationale, status: 'status', statuses: ['pending', 'approved', 'rejected', 'withdrawn'], money: r => [r.amount, r.currency], chips: r => [r.category, r.steps && r.steps.length > 1 ? r.progress : '', r.covering ? 'covering for ' + person(r.awaiting) : '', r.previous_id ? 'resubmission of #' + r.previous_id : ''], views: ['board', 'cards', 'table'] },
   recurring_tasks: { noun: 'template', title: r => r.title, sub: r => [r.department, r.owner].filter(Boolean).join(' · ') || 'Unassigned', status: 'active', priority: 'priority', chips: r => [r.frequency, 'next ' + r.next_due], views: ['cards', 'table'] },
   quotations: { noun: 'quote', title: r => r.item, sub: r => `${r.rfq} · ${r.supplier}`, body: r => r.terms, money: r => [r.unit_price, r.currency + ' / unit'], chips: r => ['qty ' + r.quantity, r.lead_days ? r.lead_days + 'd lead' : ''], views: ['cards', 'table'] },
   tariffs: { noun: 'rate', title: r => r.service, sub: r => 'Customer: ' + (r.customer || '*'), money: r => [r.rate, `${r.currency || ''} / ${r.unit || 'unit'}`], chips: r => [r.effective_from ? 'from ' + r.effective_from : ''], views: ['cards', 'table'] },
@@ -211,7 +211,15 @@ function route() {
   const k = location.hash.replace(/^#\/?/, '') || 'dashboard';
   render(PAGES[k] && visible(k) ? k : 'dashboard');
 }
-async function render(key) {
+/* Pages draw one at a time. If you click through tabs quickly, a slow page can no longer finish
+   after a newer one and overwrite it; pages queued behind a newer request are skipped. */
+let renderChain = Promise.resolve(), renderTicket = 0;
+function render(key) {
+  const ticket = ++renderTicket;
+  renderChain = renderChain.then(() => (ticket === renderTicket ? drawPage(key) : null));
+  return renderChain;
+}
+async function drawPage(key) {
   active = key;
   document.body.dataset.rendered = '';
   const [title, desc] = PAGES[key];
@@ -338,6 +346,18 @@ async function runBulk(action) {
 }
 
 /* ---------- records (board / cards / table) ---------- */
+function ownerActions(key, r) {
+  if (key !== 'approvals' || !can.write || !ownsApproval(r)) return '';
+  if (r.status === 'pending') return `<button class="ln" data-act="withdraw" data-id="${r.id}">Withdraw</button>`;
+  if (r.status === 'rejected' || r.status === 'withdrawn') return `<button class="ln" data-act="resubmit" data-id="${r.id}">Resubmit</button>`;
+  return '';
+}
+function openWithdraw(id) {
+  drawer('Withdraw request', '<p>Withdrawing cancels the request. Approvers are no longer asked to decide it, and it stays on file with your reason so the history is kept. You can resubmit it later.</p><div class="field"><label for="wr">Reason (optional)</label><textarea id="wr" name="reason" placeholder="Why are you withdrawing it?"></textarea></div>', 'Withdraw request', async d => {
+    await api('approvals/withdraw', { method: 'POST', body: JSON.stringify({ id: Number(id), reason: d.reason || '' }) });
+    closeLayer(); msg('Request withdrawn'); render(active);
+  });
+}
 function stepsHtml(r) {
   if (!r.steps || r.steps.length < 2) return '';
   return `<div class="steps2">${r.steps.map(s => `<div class="st ${esc(s.status)}"><span class="n">${s.stage}</span><span><b>${esc(person(s.approver))}</b><small>${s.status === 'pending' ? 'waiting' : esc(s.status)}${s.decided_by && (s.decided_by !== person(s.approver) || s.acting_for) ? ' · by ' + esc(s.decided_by) + (s.acting_for ? ' (covering for ' + esc(person(s.acting_for)) + ')' : '') : ''}</small></span></div>`).join('')}</div>`;
@@ -370,7 +390,7 @@ function cardHtml(key, r, cfg) {
     ${key === 'approvals' && r.decision_comment ? `<div class="note">“${esc(r.decision_comment)}”</div>` : ''}
     ${chips.length || d || (pr && cfg.date) ? `<div class="meta">${d ? `<span class="badge ${d[0]}">${esc(d[1])}</span>` : ''}${pr && cfg.date ? `<span class="badge ${esc(pr)}">${esc(pr)}</span>` : ''}${chips.map(c => `<span class="badge ${c.startsWith('★') ? 'good' : ''}">${esc(c)}</span>`).join('')}</div>` : ''}
     <div class="foot">${decide || statusSelect}${key === 'approvals' && r.status !== 'pending' ? `<span class="badge ${esc(r.status)}">${esc(r.status)}</span>` : ''}
-      <span class="sp"></span>${!cfg.readonly && can.write ? `<button class="ln" data-act="dup" data-id="${r.id}">Duplicate</button>` : ''}${editable ? `<button class="ln" data-act="edit" data-id="${r.id}">Edit</button>` : ''}${!cfg.readonly && can.del && (key !== 'approvals' || ownsApproval(r)) ? `<button class="ln d" data-act="del" data-id="${r.id}">Delete</button>` : ''}</div></article>`;
+      <span class="sp"></span>${ownerActions(key, r)}${!cfg.readonly && can.write ? `<button class="ln" data-act="dup" data-id="${r.id}">Duplicate</button>` : ''}${editable ? `<button class="ln" data-act="edit" data-id="${r.id}">Edit</button>` : ''}${!cfg.readonly && can.del && (key !== 'approvals' || ownsApproval(r)) ? `<button class="ln d" data-act="del" data-id="${r.id}">Delete</button>` : ''}</div></article>`;
 }
 const HIDE = new Set(['steps', 'can_decide']);
 function tableHtml(key, rows, cfg, sort) {
@@ -381,7 +401,7 @@ function tableHtml(key, rows, cfg, sort) {
     const v = r[k];
     const badge = ['status', 'severity', 'priority'].includes(k) && v;
     return `<td class="${['details', 'title', 'terms', 'obligation', 'rationale', 'decision_comment'].includes(k) ? 'wrap' : ''}">${badge ? `<span class="badge ${esc(v)}">${esc(human(v))}</span>` : esc(typeof v === 'object' && v !== null ? JSON.stringify(v) : v)}</td>`;
-  }).join('')}${acts ? `<td>${key === 'approvals' && r.can_decide ? `<button class="ln" data-act="decide" data-id="${r.id}" data-d="approved">Approve</button><button class="ln d" data-act="decide" data-id="${r.id}" data-d="rejected">Reject</button>` : ''}${can.write ? `<button class="ln" data-act="dup" data-id="${r.id}">Duplicate</button>` : ''}${can.write && !(key === 'approvals' && (!approvalEditable(r) || !ownsApproval(r))) ? `<button class="ln" data-act="edit" data-id="${r.id}">Edit</button>` : ''}${can.del && (key !== 'approvals' || ownsApproval(r)) ? `<button class="ln d" data-act="del" data-id="${r.id}">Delete</button>` : ''}</td>` : ''}</tr>`
+  }).join('')}${acts ? `<td>${key === 'approvals' && r.can_decide ? `<button class="ln" data-act="decide" data-id="${r.id}" data-d="approved">Approve</button><button class="ln d" data-act="decide" data-id="${r.id}" data-d="rejected">Reject</button>` : ''}${ownerActions(key, r)}${can.write ? `<button class="ln" data-act="dup" data-id="${r.id}">Duplicate</button>` : ''}${can.write && !(key === 'approvals' && (!approvalEditable(r) || !ownsApproval(r))) ? `<button class="ln" data-act="edit" data-id="${r.id}">Edit</button>` : ''}${can.del && (key !== 'approvals' || ownsApproval(r)) ? `<button class="ln d" data-act="del" data-id="${r.id}">Delete</button>` : ''}</td>` : ''}</tr>`
   ).join('')}</tbody></table></div>`;
 }
 function auditSummary(raw) {
@@ -550,10 +570,11 @@ function formFields(key, src, row) {
 
 function openForm(key, row, preset) {
   const cfg = RES[key], src = row || preset;
-  drawer(row ? `Edit ${cfg.noun}` : preset ? `Duplicate ${cfg.noun}` : `New ${cfg.noun}`, formFields(key, src, row), row ? 'Save changes' : 'Create', async d => {
+  const resubmit = !!(preset && preset._resubmit);
+  drawer(row ? `Edit ${cfg.noun}` : resubmit ? 'Resubmit request' : preset ? `Duplicate ${cfg.noun}` : `New ${cfg.noun}`, formFields(key, src, row), row ? 'Save changes' : resubmit ? 'Resubmit' : 'Create', async d => {
     if (row) await api(`${key}/${row.id}`, { method: 'PUT', body: JSON.stringify(d) });
-    else await api(key, { method: 'POST', body: JSON.stringify(d) });
-    closeLayer(); msg(row ? 'Changes saved' : 'Record created'); render(key);
+    else { if (resubmit) d.previous_id = preset.id; await api(key, { method: 'POST', body: JSON.stringify(d) }); }
+    closeLayer(); msg(row ? 'Changes saved' : resubmit ? 'Request resubmitted' : 'Record created'); render(key);
   });
 }
 function openDecision(id, decision) {
@@ -900,6 +921,8 @@ document.addEventListener('click', async e => {
   if (act === 'new') return openForm(active);
   if (act === 'edit') { const row = currentRows.find(r => Number(r.id) === Number(id)); return row ? openForm(active, row) : msg('Record not found'); }
   if (act === 'dup') { const row = currentRows.find(r => Number(r.id) === Number(id)); return row ? openForm(active, null, row) : msg('Record not found'); }
+  if (act === 'withdraw') return openWithdraw(id);
+  if (act === 'resubmit') { const row = currentRows.find(r => Number(r.id) === Number(id)); return row ? openForm('approvals', null, { ...row, _resubmit: true }) : msg('Record not found'); }
   if (act === 'del') {
     const key = active, row = currentRows.find(r => Number(r.id) === Number(id));
     const undoable = !!(row && defs[key] && !(key === 'approvals' && row.status !== 'pending'));

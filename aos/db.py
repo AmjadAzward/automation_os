@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,action TEX
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS automation_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,started_at TEXT NOT NULL,finished_at TEXT NOT NULL,detected INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL DEFAULT 0,resolved INTEGER NOT NULL DEFAULT 0,trigger TEXT NOT NULL DEFAULT 'manual');
 CREATE TABLE IF NOT EXISTS recurring_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,department TEXT NOT NULL DEFAULT 'General',owner TEXT DEFAULT '',priority TEXT NOT NULL DEFAULT 'medium',frequency TEXT NOT NULL DEFAULT 'weekly',next_due TEXT NOT NULL,active TEXT NOT NULL DEFAULT 'yes',created_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS approvals(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Operational',requester TEXT DEFAULT '',approver TEXT DEFAULT '',amount TEXT DEFAULT '0',currency TEXT NOT NULL DEFAULT 'USD',rationale TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'pending',decision_comment TEXT DEFAULT '',created_at TEXT NOT NULL,decided_at TEXT DEFAULT '',second_approver TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS approvals(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Operational',requester TEXT DEFAULT '',approver TEXT DEFAULT '',amount TEXT DEFAULT '0',currency TEXT NOT NULL DEFAULT 'USD',rationale TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'pending',decision_comment TEXT DEFAULT '',created_at TEXT NOT NULL,decided_at TEXT DEFAULT '',second_approver TEXT DEFAULT '',previous_id INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS approval_steps(id INTEGER PRIMARY KEY AUTOINCREMENT,approval_id INTEGER NOT NULL,stage INTEGER NOT NULL,approver TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',comment TEXT DEFAULT '',decided_by TEXT DEFAULT '',decided_at TEXT DEFAULT '',acting_for TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE COLLATE NOCASE,display_name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'member',password_hash TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,delegate_to TEXT NOT NULL DEFAULT '',delegate_until TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL,expires_at REAL NOT NULL,created_at TEXT NOT NULL);
@@ -46,6 +46,7 @@ def migrate(c):
     """Bring databases created by older versions up to the current schema."""
     cols=lambda t:{r[1] for r in c.execute(f'PRAGMA table_info({t})')}
     if 'actor' not in cols('audit'):c.execute("ALTER TABLE audit ADD COLUMN actor TEXT NOT NULL DEFAULT ''")
+    if 'previous_id' not in cols('approvals'):c.execute("ALTER TABLE approvals ADD COLUMN previous_id INTEGER NOT NULL DEFAULT 0")
     if 'second_approver' not in cols('approvals'):c.execute("ALTER TABLE approvals ADD COLUMN second_approver TEXT DEFAULT ''")
     if 'acting_for' not in cols('approval_steps'):c.execute("ALTER TABLE approval_steps ADD COLUMN acting_for TEXT DEFAULT ''")
     if 'delegate_to' not in cols('users'):c.execute("ALTER TABLE users ADD COLUMN delegate_to TEXT NOT NULL DEFAULT ''")

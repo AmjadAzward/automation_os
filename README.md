@@ -189,6 +189,10 @@ Approvers are chosen from a list of real, active users and stored by username, s
 
 **Waiting on you.** The Approvals tab badge, the dashboard and the Today page show what is assigned to *you*, not every pending request, and the Approval Center has an "awaiting me" filter. An admin's right to step in does not make every request theirs.
 
+### Withdrawing and resubmitting
+
+Changed your mind? The requester (or an admin) can **Withdraw** a pending request with an optional reason. Approvers stop being asked, any approvals already given are kept on file, and the request moves to a Withdrawn column instead of vanishing, which is the difference from deleting it. A rejected or withdrawn request offers **Resubmit**: a pre-filled form that creates a new request linked to the old one ("Resubmission of #12"), so the story stays traceable. You can only resubmit your own requests (an admin may resubmit any).
+
 ### Out-of-office cover
 
 Going away? Open the account menu and choose **Start cover**: pick a colleague (a member or higher) and the date you are back, up to 90 days ahead. Until that date they can decide requests assigned to you, see them under "waiting on you" with a "covering for" label, and get the notifications. The record shows who really decided and for whom, and cover ends by itself. The rules that protect approvals still apply: nobody can decide their own request through cover, and one person still cannot approve two steps of the same request. You can always decide your own requests too, and end cover early.

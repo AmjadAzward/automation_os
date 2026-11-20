@@ -5,7 +5,7 @@ import io
 import re
 import sqlite3
 from .db import audit, db, money, now
-from .approvals import check_approval_rules, create_steps
+from .approvals import check_approval_rules, check_resubmission, create_steps
 
 def add_row(table,row):
     spec={
@@ -15,7 +15,7 @@ def add_row(table,row):
       'tariffs':(['service','customer','currency','rate','unit','effective_from'],['service','rate']),
       'transactions':(['ref','service','customer','billed','units','currency','date'],['ref','service','customer','billed'])
       ,'recurring_tasks':(['title','department','owner','priority','frequency','next_due','active'],['title','frequency','next_due'])
-      ,'approvals':(['title','category','requester','approver','second_approver','amount','currency','rationale'],['title','requester','approver'])
+      ,'approvals':(['title','category','requester','approver','second_approver','amount','currency','rationale','previous_id'],['title','requester','approver'])
     }
     if table not in spec:raise ValueError('Invalid resource')
     allowed,required=spec[table]
@@ -30,6 +30,8 @@ def add_row(table,row):
             if not str(payload.get(k,'')).strip():payload.pop(k,None)
         payload['amount']=str(money(payload.get('amount','0')))
         check_approval_rules(payload)
+        if payload.get('previous_id') in (None,'',0,'0'):payload.pop('previous_id',None)
+        else:payload['previous_id']=check_resubmission(payload['previous_id'],payload['requester'])
     if table=='quotations':money(payload['unit_price']);payload['quantity']=float(payload.get('quantity') or 1)
     if table=='tariffs':money(payload['rate']);payload.setdefault('customer','*')
     if table=='transactions':money(payload['billed']);money(payload.get('units','1'))

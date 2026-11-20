@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from .db import CTX, audit, db, init, read_table, today
 from .settings import automation_runs, automation_settings, save_automation_settings
 from .accounts import AuthError, COOKIE, Forbidden, authenticate, change_password, check_access, create_user, end_session, list_users, logout_all, require_role, session_cookie, session_user, start_session, update_user, user_count
-from .approvals import approvals_list, decide_approval, delete_approval_guard, edit_approval_guard, notifications, people, prepare_approval_payload, set_delegation
+from .approvals import approvals_list, decide_approval, delete_approval_guard, edit_approval_guard, notifications, people, prepare_approval_payload, set_delegation, withdraw_approval
 from .records import add_row, bulk_action, bulk_exception_status, delete_row, import_csv, search, update_row, update_status
 from .reports import attention_queue, compare_quotes, executive_report, insights, overview
 from .backups import auto_backup, backup_export, list_backups, restore_backup, restore_stored_backup
@@ -138,6 +138,7 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/backups':return self.send({'ok':True,'name':auto_backup(force=True)})
             if path=='/api/backups/restore':return self.send(restore_stored_backup(obj.get('name')))
             if path=='/api/restore':return self.send(restore_backup(obj))
+            if path=='/api/approvals/withdraw':return self.send(withdraw_approval(int(obj.get('id')),self.user,obj.get('reason','')))
             if path=='/api/approvals/decision':return self.send(decide_approval(int(obj.get('id')),obj.get('decision'),obj.get('comment',''),self.user))
             if path.startswith('/api/'):
                 table=path.split('/')[-1]

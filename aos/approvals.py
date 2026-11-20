@@ -143,6 +143,9 @@ def prepare_approval_payload(payload,user):
     if user_count()==0 or not user or user.get('open'):return payload
     payload['requester']=user['username']
     canonicalize_approvers(payload)
+    if payload.get('previous_id') not in (None,'',0,'0'):
+        with db() as c:earlier=c.execute('SELECT requester FROM approvals WHERE id=?',(payload['previous_id'],)).fetchone()
+        if earlier and not can_manage_approval(user,earlier['requester']):raise Forbidden('You can only resubmit your own requests')
     return payload
 
 def can_manage_approval(user,requester):
@@ -161,6 +164,29 @@ def edit_approval_guard(ident,body,user):
 def delete_approval_guard(ident,user):
     with db() as c:row=c.execute('SELECT requester FROM approvals WHERE id=?',(ident,)).fetchone()
     if row and not can_manage_approval(user,row['requester']):raise Forbidden('Only the requester or an admin can delete this request')
+
+def check_resubmission(previous_id,requester):
+    """A resubmission must point at a rejected or withdrawn request, so history stays linked."""
+    try:ident=int(previous_id)
+    except (TypeError,ValueError) as e:raise ValueError('Invalid link to the earlier request') from e
+    with db() as c:row=c.execute('SELECT status FROM approvals WHERE id=?',(ident,)).fetchone()
+    if not row:raise ValueError('The earlier request was not found')
+    if row['status'] not in ('rejected','withdrawn'):raise ValueError('Only a rejected or withdrawn request can be resubmitted')
+    return ident
+
+def withdraw_approval(ident,user=None,reason=''):
+    """The requester (or an admin) pulls back a pending request. Unlike deleting it, the history is kept."""
+    reason=str(reason or '').strip()
+    if len(reason)>2000:raise ValueError('The reason is too long')
+    with config.LOCK,db() as c:
+        row=c.execute('SELECT * FROM approvals WHERE id=?',(ident,)).fetchone()
+        if not row:raise ValueError('Approval request not found')
+        if row['status']!='pending':raise ValueError('Only a pending request can be withdrawn')
+        if not can_manage_approval(user,row['requester']):raise Forbidden('Only the requester or an admin can withdraw this request')
+        c.execute("UPDATE approval_steps SET status='skipped' WHERE approval_id=? AND status='pending'",(ident,))
+        c.execute("UPDATE approvals SET status='withdrawn',decision_comment=?,decided_at=? WHERE id=?",(reason,now(),ident))
+        audit(c,'approval_withdrawn','approvals',{'id':ident,'reason':reason})
+    return {'ok':True,'status':'withdrawn'}
 
 def _age_days(iso):
     try:
@@ -187,7 +213,7 @@ def notifications(user=None):
                 add(f"approval:{a['id']}:{done}",'approval','high' if late else 'medium',a['title'],('Covering for '+label(a['awaiting'])+' · waiting for a decision' if a['covering'] else 'Waiting for your decision')+(f' · {age} days old' if age else ''),'approvals')
             elif late and (ids is None or user['role']=='admin' or mine(a['requester'])):
                 add(f"stuck:{a['id']}:{a['awaiting']}",'stuck','high',a['title'],f"Stuck for {age} days with {label(a['awaiting'])}",'approvals')
-        elif ids is not None and mine(a['requester']) and a['decided_at'] and _age_days(a['decided_at'])<=7:
+        elif ids is not None and a['status']!='withdrawn' and mine(a['requester']) and a['decided_at'] and _age_days(a['decided_at'])<=7:
             add(f"outcome:{a['id']}:{a['decided_at']}",'outcome','low' if a['status']=='approved' else 'medium',a['title'],f"Your request was {a['status']}",'approvals')
     with db() as c:
         rows=[('task',r['id'],r['title'],r['owner'],r['due_date'],'tasks') for r in c.execute("SELECT id,title,owner,due_date FROM tasks WHERE status!='done' AND due_date!='' AND due_date<=? ORDER BY due_date LIMIT 60",((today_+timedelta(days=3)).isoformat(),))]

@@ -191,6 +191,25 @@ try {
   const record = (await api('GET', 'approvals')).body.find(a => a.title === 'Cover test');
   check('the record shows who really decided and for whom', record && record.steps[0].decided_by === 'Cyd' && record.steps[0].acting_for === 'bob', JSON.stringify(record && record.steps));
 
+  // ---- withdraw and resubmit
+  await signOut(); await signIn('ann'); await waitFor(`document.querySelector('#userchip').innerText.includes('Ann')`);
+  const w = await api('POST', 'approvals', { title: 'Withdraw me', approver: 'bob', amount: '25' });
+  check('requester files another request', w.status === 200, JSON.stringify(w));
+  await goto('#/approvals');
+  await ev(`render(active)`);   // the request was filed behind the page's back (API), so redraw it
+  const cardJs = `[...document.querySelectorAll('.card')].find(c => c.innerText.includes('Withdraw me'))`;
+  check('requester sees a Withdraw button on their pending request', await ev(`!!${cardJs}?.querySelector('[data-act=withdraw]')`));
+  await ev(`${cardJs}.querySelector('[data-act=withdraw]').click()`); await waitFor(`!!document.querySelector('#wr')`);
+  await setVal('#wr', 'filed by mistake'); await submitDrawer();
+  check('withdrawing works and says so', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Request withdrawn')`)));
+  check('it moves to the Withdrawn column (history kept)', !!(await waitFor(`document.querySelector('.col[data-s=withdrawn]')?.innerText.includes('Withdraw me')`)));
+  check('a withdrawn request offers Resubmit, not Withdraw', await ev(`(() => { const c = ${cardJs}; return !!c.querySelector('[data-act=resubmit]') && !c.querySelector('[data-act=withdraw]'); })()`));
+  await ev(`${cardJs}.querySelector('[data-act=resubmit]').click()`); await waitFor(`!!document.querySelector('#f_title')`);
+  check('resubmission form is pre-filled with the original', (await ev(`document.querySelector('#f_title').value`)) === 'Withdraw me' && (await ev(`document.querySelector('#f_approver').value`)) === 'bob');
+  await submitDrawer();
+  check('resubmitting creates a new pending request linked to the old one', !!(await waitFor(`(() => { const p = document.querySelector('.col[data-s=pending]')?.innerText.toLowerCase() || ''; return p.includes('withdraw me') && p.includes('resubmission of #'); })()`)));
+  await shot('resubmitted');
+
   // ---- viewer is read-only
   await signOut(); await signIn('vic'); await waitFor(`document.querySelector('#userchip').innerText.includes('Vic')`);
   await goto('#/tasks');
