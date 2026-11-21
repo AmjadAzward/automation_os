@@ -61,6 +61,7 @@ const PAGES = {
   audit: ['Audit History', 'Every recorded change to local data'],
   ai: ['Local AI Assistant', 'Optional Ollama-powered draft analysis'],
   imports: ['CSV Imports', 'Load existing records without retyping'],
+  trash: ['Trash', 'Deleted records you can still restore'],
   users: ['Users & Roles', 'Control who can sign in and what they can do']
 };
 const GROUPS = [
@@ -68,7 +69,7 @@ const GROUPS = [
   ['Work', ['tasks', 'recurring_tasks', 'approvals', 'contracts']],
   ['Commercial', ['quotations', 'tariffs', 'transactions']],
   ['Control', ['automation', 'exceptions', 'reports', 'audit']],
-  ['Tools', ['ai', 'imports', 'users']]
+  ['Tools', ['ai', 'imports', 'trash', 'users']]
 ];
 const groupOf = k => GROUPS.find(g => g[1].includes(k)) || GROUPS[0];
 
@@ -110,7 +111,7 @@ const ownsApproval = r => !ME.accounts || can.admin || mineName(r.requester);
 const RANKS = { viewer: 0, member: 1, manager: 2, admin: 3 };
 const rank = () => (ME.accounts ? (ME.user ? RANKS[ME.user.role] : -1) : 3);
 const can = { get write() { return rank() >= 1; }, get del() { return rank() >= 2; }, get admin() { return rank() >= 3; } };
-const visible = k => k !== 'users' || can.admin;
+const visible = k => (k === 'users' ? can.admin : k === 'trash' ? can.del : true);
 let currentRows = [];
 let bestIds = new Set();
 async function api(path, options = {}) {
@@ -236,6 +237,7 @@ async function drawPage(key) {
     else if (key === 'ai') assistant();
     else if (key === 'imports') importsView();
     else if (key === 'users') await usersView();
+    else if (key === 'trash') await trashView();
     else await records(key);
   } catch (e) { setBody(empty('Something went wrong', e.message)); }
   document.body.dataset.rendered = key;   // lets tests (and anything else) know the page has finished drawing
@@ -365,7 +367,7 @@ async function runBulk(action) {
   const body = { table: active, ids, action };
   if (action === 'status') body.status = $('#bulkstatus').value;
   else if (!confirm(`Delete ${ids.length} record${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
-  try { const r = await api('bulk', { method: 'POST', body: JSON.stringify(body) }); msg(action === 'status' ? `${r.affected} updated` : `${r.affected} deleted`); render(active); }
+  try { const r = await api('bulk', { method: 'POST', body: JSON.stringify(body) }); msg(action === 'status' ? `${r.affected} updated` : `${r.affected} deleted (restore from Tools > Trash)`); render(active); }
   catch (ex) { msg(ex.message); }
 }
 
@@ -545,11 +547,13 @@ async function records(key) {
     const pick = (id, label, list) => `<div class="field" style="min-width:140px"><label for="${id}">${label}</label><select id="${id}"><option value="">All</option>${list.map(v => `<option value="${esc(v)}">${esc(human(v))}</option>`).join('')}</select></div>`;
     $('#auditfilters').innerHTML = pick('af_actor', 'Person', facets.actors) + pick('af_action', 'Action', facets.actions) + pick('af_entity', 'Record type', facets.entities)
       + '<div class="field" style="min-width:160px"><label for="af_q">Search</label><input type="search" id="af_q" maxlength="100" placeholder="Words in the details"></div><div class="field"><label for="af_from">From</label><input type="date" id="af_from"></div><div class="field"><label for="af_to">To</label><input type="date" id="af_to"></div><button class="btn" id="af_reset">Reset</button>';
+    let latest = 0;                                   // only the newest search may update the list, whatever order replies arrive in
     const reload = async () => {
+      const mine = ++latest;
       const p = new URLSearchParams();
       [['actor', 'af_actor'], ['action', 'af_action'], ['entity', 'af_entity'], ['since', 'af_from'], ['until', 'af_to'], ['q', 'af_q']].forEach(([k, id]) => { const v = $('#' + id).value; if (v) p.set(k, v); });
       p.set('limit', '2000');
-      try { rows = await api('audit?' + p.toString()); currentRows = rows; state.limit = 100; paint(); } catch (ex) { msg(ex.message); }
+      try { const got = await api('audit?' + p.toString()); if (mine !== latest) return; rows = got; currentRows = rows; state.limit = 100; paint(); } catch (ex) { msg(ex.message); }
     };
     $('#auditfilters').onchange = reload;
     $('#af_reset').onclick = () => { ['af_actor', 'af_action', 'af_entity', 'af_from', 'af_to', 'af_q'].forEach(id => { $('#' + id).value = ''; }); reload(); };
@@ -939,6 +943,11 @@ async function openAccount() {
     ME.user = null; showLogin();
   });
 }
+async function trashView() {
+  const items = await api('trash');
+  const label = e => (PAGES[e] ? PAGES[e][0] : e);
+  setBody(items.length ? `<div class="c"><div class="hd"><div><h2>Recently deleted</h2><small>Items are kept for 30 days with their comments and attached files, then removed for good.</small></div></div><div class="feed">${items.map(t => `<div class="fi"><div><b>${esc(t.title || '(untitled)')}</b><small>${esc(label(t.entity))} · deleted by ${esc(t.deleted_by)} · ${esc(String(t.deleted_at).slice(0, 16).replace('T', ' '))} · ${t.days_left} day${t.days_left === 1 ? '' : 's'} left${t.files ? ` · ${t.files} file${t.files === 1 ? '' : 's'}` : ''}</small></div><div class="rt"><button class="btn sm" data-act="trashrestore" data-tid="${t.id}">Restore</button>${can.admin ? `<button class="btn sm bad" data-act="trashdelete" data-tid="${t.id}">Delete forever</button>` : ''}</div></div>`).join('')}</div></div>` : empty('The trash is empty', 'Deleted tasks, contracts, quotes, rates and billing records show up here.'));
+}
 async function usersView() {
   if (!ME.accounts) {
     setBody('<div class="c"><div class="hd"><div><h2>Accounts are not set up</h2><small>Anyone who can open this app currently has full access.</small></div></div><p>Create the first administrator to turn on sign-in, roles and enforced approvals. Your existing data is kept.</p><button class="btn pri" data-act="setup">Set up accounts</button></div>');
@@ -1029,6 +1038,8 @@ document.addEventListener('click', async e => {
   if (act === 'dup') { const row = currentRows.find(r => Number(r.id) === Number(id)); return row ? openForm(active, null, row) : msg('Record not found'); }
   if (act === 'withdraw') return openWithdraw(id);
   if (act === 'comments') return openComments(active, id);
+  if (act === 'trashrestore') { try { const r = await api('trash/restore', { method: 'POST', body: JSON.stringify({ id: Number(a.dataset.tid) }) }); msg(`Restored to ${PAGES[r.entity] ? PAGES[r.entity][0] : r.entity}`); render('trash'); } catch (ex) { msg(ex.message); } return; }
+  if (act === 'trashdelete') { if (!confirm('Delete this item for good? Its files are removed too.')) return; try { await api('trash/' + a.dataset.tid, { method: 'DELETE' }); msg('Deleted for good'); render('trash'); } catch (ex) { msg(ex.message); } return; }
   if (act === 'delfile') { try { await api('attachments/' + a.dataset.fid, { method: 'DELETE' }); await window._drawFiles(); } catch (ex) { msg(ex.message); } return; }
   if (act === 'delcomment') { try { await api('comments/' + a.dataset.cid, { method: 'DELETE' }); await window._drawComments(); } catch (ex) { msg(ex.message); } return; }
   if (act === 'showmore') return showMoreRecords && showMoreRecords();
@@ -1050,8 +1061,12 @@ document.addEventListener('click', async e => {
     const undoable = !!(row && defs[key] && !(key === 'approvals' && row.status !== 'pending'));
     if (!undoable && !confirm('Delete this record? A decided approval cannot be restored.')) return;
     try {
-      await api(`${key}/${id}`, { method: 'DELETE' });
+      const gone = await api(`${key}/${id}`, { method: 'DELETE' });
       if (active === key) render(key);
+      if (gone.trash_id) return msg('Record deleted', { label: 'Undo', run: async () => {
+        try { await api('trash/restore', { method: 'POST', body: JSON.stringify({ id: gone.trash_id }) }); msg('Record restored'); if (active === key) render(key); }
+        catch (ex) { msg('Undo failed: ' + ex.message); }
+      } });
       msg('Record deleted', undoable ? { label: 'Undo', run: async () => {
         const d = {}; defs[key].forEach(f => { if (row[f[0]] != null) d[f[0]] = row[f[0]]; });
         try { await api(key, { method: 'POST', body: JSON.stringify(d) }); msg('Record restored'); if (active === key) render(key); }

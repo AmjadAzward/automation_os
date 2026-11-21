@@ -58,14 +58,24 @@ class AttachmentTests(AppTestCase):
         with self.assertRaises(ValueError):
             self.app.add_attachment('tasks', t, 'one-too-many.txt', b64(b'x'))
 
-    def test_deleting_the_record_removes_its_files(self):
+    def test_deleting_the_record_keeps_files_in_trash_until_emptied(self):
         t = self.task()
         self.app.add_attachment('tasks', t, 'a.txt', b64(b'x'))
         t2 = self.task()
         self.app.add_attachment('tasks', t2, 'b.txt', b64(b'y'))
-        self.app.delete_row('tasks', t)
+        first = self.app.delete_row('tasks', t)
+        self.assertEqual(len(list(self.app.config.ATTACH_DIR.glob('*'))), 2)      # kept so the delete can be undone
+        self.app.delete_item(first['trash_id'])
         self.assertEqual(len(list(self.app.config.ATTACH_DIR.glob('*'))), 1)
         self.app.bulk_action('tasks', [t2], 'delete')
+        for item in self.app.list_trash():
+            self.app.delete_item(item['id'])
+        self.assertEqual(list(self.app.config.ATTACH_DIR.glob('*')), [])
+
+    def test_deleting_an_approval_removes_its_files_at_once(self):
+        a = self.app.add_row('approvals', {'title': 'Crane', 'requester': 'ann', 'approver': 'bob'})['id']
+        self.app.add_attachment('approvals', a, 'quote.txt', b64(b'x'))
+        self.app.delete_row('approvals', a)
         self.assertEqual(list(self.app.config.ATTACH_DIR.glob('*')), [])
 
     def test_only_uploader_or_manager_can_remove(self):

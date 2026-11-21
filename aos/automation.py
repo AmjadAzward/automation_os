@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from .db import audit, db, money, now, today
 from .settings import automation_settings
 from .digest import run_digests
+from .trash import purge_old
 from .backups import auto_backup
 
 def materialize_recurring_tasks():
@@ -87,6 +88,8 @@ def scheduler():
         except Exception as e:print('Scheduled scan failed:',e)
         try:auto_backup()
         except Exception as e:print('Automatic backup failed:',e)
+        try:purge_old()
+        except Exception as e:print('Trash cleanup failed:',type(e).__name__)
         try:run_digests()
         except Exception as e:print('Daily digest failed:',type(e).__name__)
         time.sleep(automation_settings()['scan_minutes']*60)

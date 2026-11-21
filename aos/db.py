@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER 
 CREATE TABLE IF NOT EXISTS comments(id INTEGER PRIMARY KEY AUTOINCREMENT,entity TEXT NOT NULL,entity_id INTEGER NOT NULL,author TEXT NOT NULL,body TEXT NOT NULL,at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS attachments(id INTEGER PRIMARY KEY AUTOINCREMENT,entity TEXT NOT NULL,entity_id INTEGER NOT NULL,name TEXT NOT NULL,stored TEXT NOT NULL,size INTEGER NOT NULL,uploader TEXT NOT NULL,at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments(entity,entity_id);
+CREATE TABLE IF NOT EXISTS trash(id INTEGER PRIMARY KEY AUTOINCREMENT,entity TEXT NOT NULL,entity_id INTEGER NOT NULL,title TEXT NOT NULL,payload TEXT NOT NULL,deleted_by TEXT NOT NULL,deleted_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity,entity_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date,status);
 CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date,status);

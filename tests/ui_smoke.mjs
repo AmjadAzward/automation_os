@@ -264,6 +264,15 @@ try {
   check('a file can be removed', !!(await waitFor(`!document.querySelector('#files a')`)));
   await ev(`document.querySelector('[data-act=close]').click()`);
 
+  // ---- trash and undo
+  const doomed = (await api('POST', 'tasks', { title: 'Delete me by mistake' })).body.id;
+  await api('DELETE', 'tasks/' + doomed);
+  await goto('#/trash');
+  check('a deleted record is listed in the trash', !!(await waitFor(`document.querySelector('#content')?.innerText.includes('Delete me by mistake')`)));
+  await click('[data-act=trashrestore]');
+  check('it can be restored from the trash', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Restored')`)));
+  check('the restored record is back in the work queue', (await api('GET', 'tasks')).body.some(t => t.title === 'Delete me by mistake'));
+
   // ---- trend charts
   await goto('#/insights');
   check('trend charts are drawn with accessible labels', await ev(`[...document.querySelectorAll('svg.chart')].length === 3 && document.querySelector('svg.chart').getAttribute('aria-label').includes('Approval requests')`));

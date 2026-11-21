@@ -16,6 +16,7 @@ from .settings import automation_runs, automation_settings, save_automation_sett
 from .accounts import AuthError, COOKIE, Forbidden, authenticate, change_password, require_account, set_profile, check_access, create_user, end_session, list_users, logout_all, require_role, session_cookie, session_user, start_session, update_user, user_count
 from .digest import build_digest, deliver, smtp_configured
 from .attachments import add_attachment, attachment_counts, delete_attachment, download_headers, list_attachments, read_attachment
+from .trash import delete_item, list_trash, restore_item
 from .comments import add_comment, all_notifications, comment_counts, delete_comment, list_comments
 from .approvals import approvals_list, decide_approval, delete_approval_guard, edit_approval_guard, notifications, people, prepare_approval_payload, set_delegation, withdraw_approval
 from .records import add_row, bulk_action, bulk_exception_status, delete_row, import_csv, search, update_row, update_status
@@ -126,6 +127,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 for k,v in download_headers(name,len(data)).items():self.send_header(k,v)
                 self.end_headers();self.wfile.write(data);return
+            if path=='/api/trash':return self.send(list_trash())
             if path=='/api/digest/preview':return self.send(build_digest(self.user))
             if path=='/api/digest/status':return self.send({'enabled':automation_settings()['digest_enabled'],'hour':automation_settings()['digest_hour'],'smtp':smtp_configured()})
             if path=='/api/search':return self.send(search((parse_qs(urlparse(self.path).query).get('q') or [''])[0]))
@@ -164,6 +166,7 @@ class Handler(BaseHTTPRequestHandler):
                 end_session(self.session_token());return self.send({'ok':True},headers={'Set-Cookie':session_cookie('',0,secure=self.secure())})
             if path=='/api/auth/delegate':return self.send(set_delegation(self.user,obj.get('delegate',''),obj.get('until','')))
             if path=='/api/attachments':return self.send(add_attachment(obj.get('entity'),obj.get('id'),obj.get('name'),obj.get('data'),self.user))
+            if path=='/api/trash/restore':return self.send(restore_item(obj.get('id')))
             if path=='/api/comments':return self.send(add_comment(obj.get('entity'),obj.get('id'),obj.get('body'),self.user))
             if path=='/api/digest/test':return self.send(deliver(self.user,build_digest(self.user)))
             if path=='/api/auth/profile':
@@ -207,6 +210,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self.guard(True):return
             parts=self.begin('DELETE').strip('/').split('/')
             if len(parts)!=3 or parts[0]!='api':raise ValueError('Invalid delete path')
+            if parts[1]=='trash':return self.send(delete_item(int(parts[2])))
             if parts[1]=='comments':return self.send(delete_comment(int(parts[2]),self.user))
             if parts[1]=='attachments':return self.send(delete_attachment(int(parts[2]),self.user))
             if parts[1]=='approvals':delete_approval_guard(int(parts[2]),self.user)

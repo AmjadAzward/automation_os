@@ -197,6 +197,10 @@ Changed your mind? The requester (or an admin) can **Withdraw** a pending reques
 
 Every task, approval and contract has a **Comment** button that opens a thread. Members can post; viewers can read; you can delete your own comments (admins can delete any). The requester and approvers of an approval (including a colleague covering for one) and the owner of a task or contract get a notification when someone else comments. Comment text is never copied into the audit history, only the fact that a comment was made.
 
+### Trash
+
+Deleting a task, contract, quote, rate or billing record moves it to **Tools > Trash** for 30 days instead of destroying it, together with its comments and attached files. Managers can restore items (the **Undo** button after a delete uses the same thing); only admins can delete an item for good. Approvals are not trashable, because a decided approval is a record of a decision.
+
 ### File attachments
 
 Tasks, approvals and contracts can carry up to 10 files of up to 2 MB each (open **Comment** on a record, then **Attach a file**). Files are stored in `data/attachments/` under random names, are always downloaded rather than opened in the browser, and are removed when their record is deleted. Executable and scriptable types (.exe, .bat, .js, .html, .svg and similar) are refused. Only the person who attached a file, or a manager or admin, can remove it. **Download full backup** (Reports) is a `.zip` holding the records and every attached file, and **Restore** accepts that `.zip` (old `.json` backups still work, and say how many attached files are missing). The automatic daily backups in `data/backups/` are `.zip` files too (older `.json` ones still restore), so attached files are covered; the newest 14 are kept, which means disk use grows with your attachments. Recent attachments also notify the people involved in a record, and the Audit page has a free-text search.

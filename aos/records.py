@@ -6,6 +6,7 @@ import re
 import sqlite3
 from .db import audit, db, money, now
 from .attachments import purge_for_records, unlink_stored
+from .trash import TRASHABLE, capture
 from .approvals import check_approval_rules, check_resubmission, create_steps
 
 def add_row(table,row,dry_run=False):
@@ -99,14 +100,15 @@ def delete_row(table,ident):
     with config.LOCK,db() as c:
         row=c.execute(f'SELECT * FROM {table} WHERE id=?',(ident,)).fetchone()
         if not row:raise ValueError('Record not found')
+        trash_ids=capture(c,table,[ident]) if table in TRASHABLE else []
         c.execute(f'DELETE FROM {table} WHERE id=?',(ident,))
         gone=[]
         if table in config.COMMENT_ENTITIES:
             c.execute('DELETE FROM comments WHERE entity=? AND entity_id=?',(table,ident));gone=purge_for_records(c,table,[ident])
         if table=='approvals':c.execute('DELETE FROM approval_steps WHERE approval_id=?',(ident,))
         audit(c,'delete',table,{'id':ident})
-    unlink_stored(gone)
-    return {'ok':True}
+    if not trash_ids:unlink_stored(gone)       # trashed records keep their files until the trash is emptied
+    return {'ok':True,'trash_id':trash_ids[0] if trash_ids else None}
 
 def bulk_exception_status(ids,status):
     if status not in config.STATUSES:raise ValueError('Invalid status')
@@ -134,12 +136,13 @@ def bulk_action(table,ids,action,status=None):
             cur=c.execute(f'UPDATE {table} SET status=? WHERE id IN ({marks})',[status,*clean])
         elif action=='delete':
             if table not in BULK_DELETE_TABLES:raise ValueError('These records cannot be deleted in bulk')
+            if table in TRASHABLE:capture(c,table,clean)
             cur=c.execute(f'DELETE FROM {table} WHERE id IN ({marks})',clean)
             if table in config.COMMENT_ENTITIES:
                 c.execute(f'DELETE FROM comments WHERE entity=? AND entity_id IN ({marks})',[table,*clean]);gone=purge_for_records(c,table,clean)
         else:raise ValueError('Unknown bulk action')
         audit(c,'bulk_'+action,table,{'ids':clean,'affected':cur.rowcount,**({'status':status} if action=='status' else {})})
-    unlink_stored(gone)
+    if table not in TRASHABLE:unlink_stored(gone)
     return {'ok':True,'affected':cur.rowcount}
 
 SEARCH_SPEC={'tasks':('title','owner',['title','department','owner']),'approvals':('title','requester',['title','requester','approver','rationale']),'contracts':('contract','counterparty',['contract','counterparty','obligation','owner']),'quotations':('item','supplier',['item','supplier','rfq']),'tariffs':('service','customer',['service','customer']),'transactions':('ref','customer',['ref','service','customer']),'recurring_tasks':('title','owner',['title','owner','department']),'exceptions':('entity','kind',['entity','details'])}

@@ -12,6 +12,7 @@ from datetime import datetime
 from .db import audit, db, now, read_table
 from .settings import automation_settings, save_automation_settings
 from .attachments import STORED_RE
+from .trash import trashed_files
 
 def backup_export():
     tables=('tasks','recurring_tasks','approvals','approval_steps','comments','attachments','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs')
@@ -64,8 +65,9 @@ def _tidy_attachments(files):
             p.write_bytes(blob)
             try:os.chmod(p,0o600)
             except OSError:pass
-    with db() as c:rows=[r[0] for r in c.execute('SELECT stored FROM attachments')]
-    keep=set(rows)
+    with db() as c:
+        rows=[r[0] for r in c.execute('SELECT stored FROM attachments')]
+        keep=set(rows)|trashed_files(c)
     for p in config.ATTACH_DIR.iterdir():
         if STORED_RE.fullmatch(p.name) and p.name not in keep:
             try:p.unlink()
