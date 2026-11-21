@@ -264,10 +264,20 @@ try {
   check('a file can be removed', !!(await waitFor(`!document.querySelector('#files a')`)));
   await ev(`document.querySelector('[data-act=close]').click()`);
 
+  // ---- keyboard shortcuts
+  await goto('#/dashboard');
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }))`);
+  check('? opens the shortcut list', !!(await waitFor(`document.querySelector('[aria-label="Keyboard shortcuts"]')?.innerText.includes('Go to Calendar')`)));
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+  await waitFor(`!document.querySelector('#layer').firstChild`);
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true }))`);
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true }))`);
+  check('g then l goes to the calendar', !!(await waitFor(`location.hash === '#/calendar'`)));
+
   // ---- calendar
   const todayIso = await ev(`isoToday()`);
   await api('POST', 'tasks', { title: 'Calendar check task', due_date: todayIso });
-  await goto('#/calendar');
+  await goto('#/calendar'); await ev(`render(active)`);
   check('the calendar shows a task on its due date', !!(await waitFor(`!!document.querySelector('.cal .day.now .calchip')`)));
   const heading = await ev(`document.querySelector('.calbar h2').innerText`);
   await click('[data-act=calnext]');

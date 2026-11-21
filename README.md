@@ -197,6 +197,10 @@ Changed your mind? The requester (or an admin) can **Withdraw** a pending reques
 
 Every task, approval and contract has a **Comment** button that opens a thread. Members can post; viewers can read; you can delete your own comments (admins can delete any). The requester and approvers of an approval (including a colleague covering for one) and the owner of a task or contract get a notification when someone else comments. Comment text is never copied into the audit history, only the fact that a comment was made.
 
+### Keyboard shortcuts
+
+Press **?** anywhere for the list. Besides Ctrl+K (jump to anything), `/` (search the page), `n` (new record), `r` (run a scan) and `t` (theme), press **g** then a letter to go to a page: `d` dashboard, `o` today, `l` calendar, `t` tasks, `a` approvals, `c` contracts, `q` quotes, `x` exceptions, `r` reports, `h` audit history, `b` trash, `i` insights.
+
 ### Calendar
 
 Overview > **Calendar** shows a month grid of task due dates and contract obligations (tasks in blue, contracts in amber, overdue in red, finished ones struck through). Use the arrows to change month, click an item to edit it. On a phone the grid becomes a day-by-day list.

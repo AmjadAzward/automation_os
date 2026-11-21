@@ -1152,15 +1152,37 @@ document.addEventListener('change', async e => {
   try { await api('status', { method: 'POST', body: JSON.stringify({ table: e.target.dataset.table, id: Number(e.target.dataset.id), status: e.target.value }) }); msg('Status updated'); render(active); }
   catch (ex) { msg(ex.message); }
 });
+const GOTO_KEYS = { d: 'dashboard', o: 'today', l: 'calendar', i: 'insights', t: 'tasks', a: 'approvals', c: 'contracts', q: 'quotations', x: 'exceptions', r: 'reports', h: 'audit', b: 'trash' };
+let goPending = 0;
+function openShortcuts() {
+  window._opener = document.activeElement;
+  const row = (k, d) => `<div class="fi"><div><b>${d}</b></div><div class="rt">${k.split(' ').map(x => `<kbd>${esc(x)}</kbd>`).join(' ')}</div></div>`;
+  const pages = Object.entries(GOTO_KEYS).filter(([, p]) => visible(p)).map(([k, p]) => row('g ' + k, 'Go to ' + PAGES[p][0])).join('');
+  $('#layer').innerHTML = `<div class="back" id="back"><aside class="drawer" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"><header><h2>Keyboard shortcuts</h2><button class="ib" data-act="close" aria-label="Close">×</button></header>
+    <div class="feed">${row('Ctrl K', 'Jump to a page or record')}${row('/', 'Search this page')}${row('n', 'New record')}${can.write ? row('r', 'Run a scan') : ''}${row('t', 'Switch light / dark')}${row('?', 'Show this help')}${row('Esc', 'Close a panel')}</div>
+    <div class="grp" style="margin-top:14px">Press g, then a letter</div><div class="feed">${pages}</div></aside></div>`;
+  $('#back').onclick = e => { if (e.target.id === 'back') closeLayer(); };
+  document.addEventListener('keydown', escClose);
+  const b = $('#back [data-act=close]'); if (b) b.focus();
+}
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (READY) openPalette(); return; }
   if (!READY || e.ctrlKey || e.metaKey || e.altKey || $('#layer').firstChild || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
-  if (e.key === '/') { const q = $('#q'); if (q) { e.preventDefault(); q.focus(); } }
+  if (goPending && Date.now() - goPending < 1500) {
+    goPending = 0;
+    const page = GOTO_KEYS[e.key.toLowerCase()];
+    if (page && visible(page)) { e.preventDefault(); go(page); }
+    return;
+  }
+  if (e.key === 'g') { goPending = Date.now(); return; }
+  if (e.key === '?') { e.preventDefault(); openShortcuts(); }
+  else if (e.key === '/') { const q = $('#q'); if (q) { e.preventDefault(); q.focus(); } }
   else if (e.key === 'n') { const b = $('[data-act=new]'); if (b) { e.preventDefault(); b.click(); } }
   else if (e.key === 'r' && can.write) runScan();
   else if (e.key === 't') toggleTheme();
 });
 $('#palette').onclick = openPalette;
+const helpBtn = $('#helpkeys'); if (helpBtn) helpBtn.onclick = openShortcuts;
 $('#scan').onclick = e => runScan(e.currentTarget);
 $('#themeToggle').onclick = toggleTheme;
 $('#userchip').onclick = openAccount;
