@@ -125,7 +125,7 @@ try {
   check('request form has no requester field once accounts exist', !(await ev(`!!document.querySelector('#f_requester')`)));
   check('approver is picked from a list of real people (not yourself)', await ev(`(() => { const o = [...document.querySelectorAll('#f_approver option')].map(x => x.value); return o.includes('bob') && o.includes('cyd') && !o.includes('ann'); })()`));
   await setVal('#f_title', 'Buy a crane'); await setVal('#f_approver', 'bob'); await setVal('#f_amount', '9000'); await submitDrawer();
-  await sleep(600);
+  // (the check below waits for the message)
   check('threshold blocks a large request without a second approver', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('second approver')`)), await text('#message'));
   await setVal('#f_second_approver', 'cyd'); await submitDrawer();
   await waitFor(`document.body.innerText.includes('Buy a crane')`);
@@ -143,7 +143,7 @@ try {
   await click('#bell'); await waitFor(`!!document.querySelector('#notebody')`);
   check('notification panel explains what is needed', (await text('#notebody')).includes('Buy a crane') && (await text('#notebody')).includes('Waiting for your decision'));
   await shot('notifications');
-  await ev(`document.querySelector('[data-act=dismiss]').click()`); await sleep(300);
+  await ev(`document.querySelector('[data-act=dismiss]').click()`); await waitFor(`document.querySelector('#bell .bn').classList.contains('hidden')`);
   check('dismissing clears the alert', await ev(`document.querySelector('#bell .bn').classList.contains('hidden')`));
   await ev(`document.querySelector('[data-act=close]').click()`);
   check('someone else cannot edit or delete the request', !(await ev(`!!document.querySelector('[data-act=edit],[data-act=del]')`)));
@@ -152,7 +152,7 @@ try {
   await click('[data-act=decide][data-d=approved]'); await waitFor(`!!document.querySelector('#f_c')||!!document.querySelector('#dform')`);
   await ev(`document.querySelector('#c').value='Looks fine'`); await submitDrawer();
   check('step 1 approval keeps the request pending', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Step 1 approved')`)));
-  await sleep(500);
+  await waitFor(`document.querySelector('#content')?.innerText.includes('Waiting for Cyd')`);
   check('step 2 approver is shown by display name', (await text('#content')).includes('Cyd'));
   check('bob cannot also approve step 2', !(await ev(`!!document.querySelector('[data-act=decide]')`)) && (await text('#content')).includes('Waiting for Cyd'));
 
@@ -161,7 +161,7 @@ try {
   await goto('#/approvals'); await waitFor(`!!document.querySelector('[data-act=decide]')`);
   await click('[data-act=decide][data-d=approved]'); await waitFor(`!!document.querySelector('#dform')`); await submitDrawer();
   check('final approval completes the request', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Request approved')`)));
-  await sleep(500); await shot('approval-done');
+  await waitFor(`document.querySelector('.col[data-s=approved]')?.innerText.includes('Buy a crane')`); await shot('approval-done');
   check('approved card moves to the Approved column', !!(await waitFor(`document.querySelector('.col[data-s=approved]')?.innerText.includes('Buy a crane')`)));
 
   // ---- the requester is told the outcome
@@ -187,7 +187,7 @@ try {
   check('the delegate sees the request marked as covering', (await text('#content')).toLowerCase().includes('covering for bob'), (await text('#content')).slice(0, 300));
   await click('[data-act=decide][data-d=approved]'); await waitFor(`!!document.querySelector('#dform')`); await submitDrawer();
   check('the delegate can approve it', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Request approved')`)));
-  await sleep(500);
+  await waitFor(`true`); await until(async () => (await api('GET', 'approvals')).body.some(a => a.title === 'Cover test' && a.steps[0].decided_by));
   const record = (await api('GET', 'approvals')).body.find(a => a.title === 'Cover test');
   check('the record shows who really decided and for whom', record && record.steps[0].decided_by === 'Cyd' && record.steps[0].acting_for === 'bob', JSON.stringify(record && record.steps));
 
