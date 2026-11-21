@@ -295,12 +295,15 @@ Needs Node 22+ and Chrome or Edge (set `BROWSER=/path/to/browser` if it is not f
 
 ## Roadmap
 
-- Notifications with human approval gates
-- PostgreSQL support for concurrent teams
-- External accounting and procurement adapters
-- End-to-end browser tests and production monitoring
-- Approval delegation and out-of-office cover
-- Email or chat digests (alerts are in-app today)
+Already built: notifications, approval gates and delegation, out-of-office cover, email digests, browser tests, attachments, trash, calendar.
+
+Still open, and each needs a decision from you rather than more code:
+
+- PostgreSQL support for concurrent teams (only worth it beyond a small team; SQLite is fine below that)
+- External accounting and procurement adapters (depends on which systems you use)
+- Production monitoring (depends on where it is hosted)
+- Money stored as whole cents instead of decimal numbers (a data migration, so it needs a backup and a test on your real data)
+- Encrypted backups (needs a crypto library, which this project avoids)
 
 ## License
 
