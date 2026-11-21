@@ -5,6 +5,7 @@ import io
 import re
 import sqlite3
 from .db import audit, db, money, now
+from .attachments import purge_for_records, unlink_stored
 from .approvals import check_approval_rules, check_resubmission, create_steps
 
 def add_row(table,row,dry_run=False):
@@ -99,9 +100,12 @@ def delete_row(table,ident):
         row=c.execute(f'SELECT * FROM {table} WHERE id=?',(ident,)).fetchone()
         if not row:raise ValueError('Record not found')
         c.execute(f'DELETE FROM {table} WHERE id=?',(ident,))
-        if table in config.COMMENT_ENTITIES:c.execute('DELETE FROM comments WHERE entity=? AND entity_id=?',(table,ident))
+        gone=[]
+        if table in config.COMMENT_ENTITIES:
+            c.execute('DELETE FROM comments WHERE entity=? AND entity_id=?',(table,ident));gone=purge_for_records(c,table,[ident])
         if table=='approvals':c.execute('DELETE FROM approval_steps WHERE approval_id=?',(ident,))
         audit(c,'delete',table,{'id':ident})
+    unlink_stored(gone)
     return {'ok':True}
 
 def bulk_exception_status(ids,status):
@@ -123,6 +127,7 @@ def bulk_action(table,ids,action,status=None):
     try:clean=sorted({int(i) for i in ids})
     except (TypeError,ValueError) as e:raise ValueError('Invalid record ids') from e
     marks=','.join(['?']*len(clean))
+    gone=[]
     with config.LOCK,db() as c:
         if action=='status':
             if table not in BULK_STATUS_TABLES or status not in config.STATUSES:raise ValueError('That status change is not allowed')
@@ -130,9 +135,11 @@ def bulk_action(table,ids,action,status=None):
         elif action=='delete':
             if table not in BULK_DELETE_TABLES:raise ValueError('These records cannot be deleted in bulk')
             cur=c.execute(f'DELETE FROM {table} WHERE id IN ({marks})',clean)
-            if table in config.COMMENT_ENTITIES:c.execute(f'DELETE FROM comments WHERE entity=? AND entity_id IN ({marks})',[table,*clean])
+            if table in config.COMMENT_ENTITIES:
+                c.execute(f'DELETE FROM comments WHERE entity=? AND entity_id IN ({marks})',[table,*clean]);gone=purge_for_records(c,table,clean)
         else:raise ValueError('Unknown bulk action')
         audit(c,'bulk_'+action,table,{'ids':clean,'affected':cur.rowcount,**({'status':status} if action=='status' else {})})
+    unlink_stored(gone)
     return {'ok':True,'affected':cur.rowcount}
 
 SEARCH_SPEC={'tasks':('title','owner',['title','department','owner']),'approvals':('title','requester',['title','requester','approver','rationale']),'contracts':('contract','counterparty',['contract','counterparty','obligation','owner']),'quotations':('item','supplier',['item','supplier','rfq']),'tariffs':('service','customer',['service','customer']),'transactions':('ref','customer',['ref','service','customer']),'recurring_tasks':('title','owner',['title','owner','department']),'exceptions':('entity','kind',['entity','details'])}

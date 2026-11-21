@@ -29,6 +29,9 @@ def _scrypt_cost():
 SCRYPT_N=_scrypt_cost()
 
 MAX_BODY=3_000_000
+MAX_ATTACHMENT=2_000_000          # bytes per file (sent as base64 inside the 3 MB request limit)
+MAX_ATTACHMENTS_PER_RECORD=10
+ATTACH_DIR=DB.parent/'attachments'
 
 LOCK=threading.RLock()
 

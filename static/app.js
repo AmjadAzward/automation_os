@@ -338,6 +338,7 @@ async function insightsView() {
 
 /* ---------- comments, paging ---------- */
 let commentCounts = {}, showMoreRecords = null;
+const fmtSize = n => n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
 const COMMENTABLE = ['tasks', 'approvals', 'contracts'];
 const commentBtn = (key, r) => (COMMENTABLE.includes(key) ? `<button class="ln" data-act="comments" data-id="${r.id}">${commentCounts[r.id] ? `Comments (${commentCounts[r.id]})` : 'Comment'}</button>` : '');
 
@@ -379,7 +380,7 @@ async function openComments(key, id) {
   const row = currentRows.find(r => Number(r.id) === Number(id));
   const title = row ? RES[key].title(row) : 'Record';
   window._opener = document.activeElement;
-  $('#layer').innerHTML = `<div class="back" id="back"><aside class="drawer" role="dialog" aria-modal="true" aria-label="Comments"><header><h2>Comments</h2><button class="ib" data-act="close" aria-label="Close">×</button></header><p style="margin:0"><b>${esc(title)}</b></p><div id="thread"></div>${can.write ? '<form id="cform" class="stack"><div class="field"><label for="cbody">Add a comment</label><textarea id="cbody" maxlength="2000" placeholder="Write a comment…"></textarea></div><button class="btn pri" type="submit">Post comment</button></form>' : ''}</aside></div>`;
+  $('#layer').innerHTML = `<div class="back" id="back"><aside class="drawer" role="dialog" aria-modal="true" aria-label="Comments and files"><header><h2>Comments and files</h2><button class="ib" data-act="close" aria-label="Close">×</button></header><p style="margin:0"><b>${esc(title)}</b></p><div id="files"></div>${can.write ? '<div class="field"><label for="fileinput">Attach a file (up to 2 MB)</label><input type="file" id="fileinput"></div>' : ''}<h3 style="margin:8px 0 0;font-size:14px">Comments</h3><div id="thread"></div>${can.write ? '<form id="cform" class="stack"><div class="field"><label for="cbody">Add a comment</label><textarea id="cbody" maxlength="2000" placeholder="Write a comment…"></textarea></div><button class="btn pri" type="submit">Post comment</button></form>' : ''}</aside></div>`;
   $('#back').onclick = e => { if (e.target.id === 'back') closeLayer(); };
   document.addEventListener('keydown', escClose);
   const draw = async () => {
@@ -388,6 +389,23 @@ async function openComments(key, id) {
     const el = $('#thread');
     if (el) el.innerHTML = list.length ? list.map(c => `<div class="cm"><div class="who"><b>${esc(c.author_name)}</b><small>${esc(String(c.at).slice(0, 16).replace('T', ' '))}</small>${can.admin || mineName(c.author) ? `<button class="ln d" data-act="delcomment" data-cid="${c.id}">Delete</button>` : ''}</div><p>${esc(c.body)}</p></div>`).join('') : '<div class="mt">No comments yet.</div>';
     if (repaintRecords) repaintRecords();
+  };
+  const drawFiles = async () => {
+    const list = await api(`attachments?entity=${key}&id=${id}`);
+    const el = $('#files');
+    if (el) el.innerHTML = list.length ? '<h3 style="margin:8px 0 0;font-size:14px">Files</h3>' + list.map(f => `<div class="cm"><div class="who"><a href="/api/attachments/${f.id}/download">${esc(f.name)}</a><small>${esc(fmtSize(f.size))} · ${esc(f.uploader)}</small>${can.write && (can.del || mineName(f.uploader)) ? `<button class="ln d" data-act="delfile" data-fid="${f.id}">Remove</button>` : ''}</div></div>`).join('') : '';
+  };
+  window._drawFiles = drawFiles;
+  const picker = $('#fileinput');
+  if (picker) picker.onchange = async () => {
+    const file = picker.files[0];
+    if (!file) return;
+    if (file.size > 2000000) { msg('Files can be at most 2 MB'); picker.value = ''; return; }
+    try {
+      const data = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = no; r.readAsDataURL(file); });
+      await api('attachments', { method: 'POST', body: JSON.stringify({ entity: key, id: Number(id), name: file.name, data }) });
+      picker.value = ''; msg('File attached'); await drawFiles();
+    } catch (ex) { msg(ex.message); picker.value = ''; }
   };
   window._drawComments = draw;
   const form = $('#cform');
@@ -398,7 +416,7 @@ async function openComments(key, id) {
     try { await api('comments', { method: 'POST', body: JSON.stringify({ entity: key, id: Number(id), body }) }); $('#cbody').value = ''; await draw(); }
     catch (ex) { msg(ex.message); }
   };
-  try { await draw(); } catch (ex) { msg(ex.message); }
+  try { await draw(); await drawFiles(); } catch (ex) { msg(ex.message); }
 }
 function openWithdraw(id) {
   drawer('Withdraw request', '<p>Withdrawing cancels the request. Approvers are no longer asked to decide it, and it stays on file with your reason so the history is kept. You can resubmit it later.</p><div class="field"><label for="wr">Reason (optional)</label><textarea id="wr" name="reason" placeholder="Why are you withdrawing it?"></textarea></div>', 'Withdraw request', async d => {
@@ -1003,6 +1021,7 @@ document.addEventListener('click', async e => {
   if (act === 'dup') { const row = currentRows.find(r => Number(r.id) === Number(id)); return row ? openForm(active, null, row) : msg('Record not found'); }
   if (act === 'withdraw') return openWithdraw(id);
   if (act === 'comments') return openComments(active, id);
+  if (act === 'delfile') { try { await api('attachments/' + a.dataset.fid, { method: 'DELETE' }); await window._drawFiles(); } catch (ex) { msg(ex.message); } return; }
   if (act === 'delcomment') { try { await api('comments/' + a.dataset.cid, { method: 'DELETE' }); await window._drawComments(); } catch (ex) { msg(ex.message); } return; }
   if (act === 'showmore') return showMoreRecords && showMoreRecords();
   if (act === 'saveprofile') {

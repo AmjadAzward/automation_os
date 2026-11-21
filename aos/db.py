@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS approval_steps(id INTEGER PRIMARY KEY AUTOINCREMENT,a
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE COLLATE NOCASE,display_name TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'member',password_hash TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,delegate_to TEXT NOT NULL DEFAULT '',delegate_until TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',digest_optin INTEGER NOT NULL DEFAULT 0,digest_sent TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL,expires_at REAL NOT NULL,created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS comments(id INTEGER PRIMARY KEY AUTOINCREMENT,entity TEXT NOT NULL,entity_id INTEGER NOT NULL,author TEXT NOT NULL,body TEXT NOT NULL,at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS attachments(id INTEGER PRIMARY KEY AUTOINCREMENT,entity TEXT NOT NULL,entity_id INTEGER NOT NULL,name TEXT NOT NULL,stored TEXT NOT NULL,size INTEGER NOT NULL,uploader TEXT NOT NULL,at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments(entity,entity_id);
 CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity,entity_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date,status);
 CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date,status);
@@ -72,7 +74,7 @@ def audit(c,action,entity,details):
     c.execute('INSERT INTO audit(action,entity,details,at,actor) VALUES(?,?,?,?,?)',(action,entity,json.dumps(details,ensure_ascii=False),now(),actor()))
 
 def read_table(table,limit=500):
-    if table not in ('tasks','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs','recurring_tasks','approvals','approval_steps','comments'):raise ValueError('Invalid resource')
+    if table not in ('tasks','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs','recurring_tasks','approvals','approval_steps','comments','attachments'):raise ValueError('Invalid resource')
     with db() as c:return [dict(x) for x in c.execute(f'SELECT * FROM {table} ORDER BY id DESC LIMIT ?', (min(max(limit,1),3000),))]
 
 CTX=threading.local()

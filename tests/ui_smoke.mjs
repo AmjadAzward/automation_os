@@ -253,6 +253,14 @@ try {
   check('the card shows the new comment count', !!(await waitFor(`${taskCard}?.innerText.includes('Comments (1)')`)));
   await ev(`document.querySelector('[data-act=delcomment]').click()`);
   check('the author can delete their own comment', !!(await waitFor(`document.querySelector('#thread')?.innerText.includes('No comments yet')`)));
+  // attachments live in the same drawer
+  await ev(`${taskCard}.querySelector('[data-act=comments]').click()`); await waitFor(`!!document.querySelector('#fileinput')`);
+  await ev(`(() => { const dt = new DataTransfer(); dt.items.add(new File(['hello file'], 'notes.txt', { type: 'text/plain' })); const i = document.querySelector('#fileinput'); i.files = dt.files; i.dispatchEvent(new Event('change')); })()`);
+  check('a file can be attached and appears in the drawer', !!(await waitFor(`document.querySelector('#files')?.innerText.includes('notes.txt')`)));
+  const dl = await ev(`fetch(document.querySelector('#files a').getAttribute('href')).then(async r => ({ t: await r.text(), d: r.headers.get('content-disposition') }))`);
+  check('the file downloads intact, as an attachment', dl.t === 'hello file' && /^attachment/.test(dl.d), JSON.stringify(dl));
+  await ev(`document.querySelector('[data-act=delfile]').click()`);
+  check('a file can be removed', !!(await waitFor(`!document.querySelector('#files a')`)));
   await ev(`document.querySelector('[data-act=close]').click()`);
 
   // ---- trend charts
