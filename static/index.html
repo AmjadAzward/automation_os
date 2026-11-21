@@ -264,6 +264,16 @@ th[data-sort]{cursor:pointer;user-select:none}th[data-sort]:hover{color:var(--bl
 }
 @media(max-width:380px){.pagehead h1{font-size:25px}.kpi b{font-size:30px}.c{padding:16px}.logo .lt{display:none}}
 @media (hover:none){.kpi:hover{transform:none}.card:hover{transform:none}}
+.calbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}.calbar h2{margin:0 auto 0 4px;font-size:18px}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r2);overflow:hidden}
+.cal .dow{background:var(--card2);padding:8px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.cal .day{background:var(--card);min-height:104px;padding:6px;display:flex;flex-direction:column;gap:4px;min-width:0}.cal .day.out{background:var(--card2)}.cal .day.out .dn{color:var(--muted)}
+.cal .dn{font-size:12px;font-weight:700;color:var(--ink2)}.cal .day.now .dn{background:var(--accent);color:var(--on-accent);border-radius:999px;padding:1px 7px;align-self:flex-start}
+.calchip{all:unset;box-sizing:border-box;cursor:pointer;display:block;width:100%;font-size:11.5px;line-height:1.3;padding:3px 6px;border-radius:6px;background:var(--blue-soft);color:var(--blue);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.calchip.contract{background:var(--warn-soft);color:var(--warn)}.calchip.late{background:var(--bad-soft);color:var(--bad)}.calchip.done{background:var(--sunken);color:var(--muted);text-decoration:line-through}
+.calchip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}.calmore{font-size:11px;color:var(--muted);padding:0 6px}
+.agenda{display:none}
+@media(max-width:720px){.cal{display:none}.agenda{display:block}.agenda .grp{margin-top:14px}.agenda .calchip{white-space:normal;padding:8px 10px;font-size:13px;margin-top:4px}}
 </style>
 </head>
 <body>

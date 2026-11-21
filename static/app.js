@@ -23,6 +23,7 @@ function toggleTheme() {
 /* ---------- icons ---------- */
 const ICON = {
   dashboard: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10M9 20v-6h6v6"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h2M14 14h2M8 17h2"/>',
   today: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   insights: '<path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/>',
   tasks: '<path d="M9 5h10M9 12h10M9 19h10"/><path d="m3 5 1.3 1.3L6.5 4M3 12l1.3 1.3L6.5 11M3 19l1.3 1.3L6.5 18"/>',
@@ -47,6 +48,7 @@ const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k] || ICON.
 const PAGES = {
   dashboard: ['Command Center', 'Your operations at a glance'],
   today: ['Today', 'What needs attention right now'],
+  calendar: ['Calendar', 'Due dates for tasks and contract obligations'],
   insights: ['Performance Insights', 'Deadlines, risk and completion trends'],
   tasks: ['Work Queue', 'Assign, monitor and close tasks'],
   recurring_tasks: ['Recurring Tasks', 'Routine work that generates itself'],
@@ -65,7 +67,7 @@ const PAGES = {
   users: ['Users & Roles', 'Control who can sign in and what they can do']
 };
 const GROUPS = [
-  ['Overview', ['dashboard', 'today', 'insights']],
+  ['Overview', ['dashboard', 'today', 'calendar', 'insights']],
   ['Work', ['tasks', 'recurring_tasks', 'approvals', 'contracts']],
   ['Commercial', ['quotations', 'tariffs', 'transactions']],
   ['Control', ['automation', 'exceptions', 'reports', 'audit']],
@@ -231,6 +233,7 @@ async function drawPage(key) {
   try {
     if (key === 'dashboard') await dashboard();
     else if (key === 'today') await todayView();
+    else if (key === 'calendar') await calendarView();
     else if (key === 'insights') await insightsView();
     else if (key === 'automation') await automationView();
     else if (key === 'reports') await reportsView();
@@ -295,6 +298,35 @@ async function dashboard() {
 }
 
 /* ---------- today ---------- */
+let calMonth = null;            // {y, m} being shown on the calendar page
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+async function calendarView() {
+  const now = new Date();
+  if (!calMonth) calMonth = { y: now.getFullYear(), m: now.getMonth() };
+  const { y, m } = calMonth;
+  const [tasks, contracts] = await Promise.all([api('tasks'), api('contracts')]);
+  const items = [...tasks.map(r => ({ r, k: 'tasks', t: r.title })), ...contracts.map(r => ({ r, k: 'contracts', t: r.contract }))].filter(x => x.r.due_date);
+  window._cal = items;
+  const byDay = {};
+  items.forEach(x => (byDay[x.r.due_date] = byDay[x.r.due_date] || []).push(x));
+  const today = isoToday(), iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const chip = x => `<button class="calchip ${x.k === 'contracts' ? 'contract' : ''} ${x.r.status === 'done' ? 'done' : x.r.due_date < today ? 'late' : ''}" data-act="calopen" data-k="${x.k}" data-id="${x.r.id}" title="${esc(x.t)} (${esc(human(x.r.status))})">${esc(x.t)}</button>`;
+  const first = new Date(y, m, 1), start = new Date(y, m, 1 - ((first.getDay() + 6) % 7));       // weeks start on Monday
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    if (i >= 35 && d.getMonth() !== m) break;
+    const list = byDay[iso(d)] || [];
+    cells.push(`<div class="day ${d.getMonth() !== m ? 'out' : ''} ${iso(d) === today ? 'now' : ''}"><span class="dn">${d.getDate()}</span>${list.slice(0, 3).map(chip).join('')}${list.length > 3 ? `<span class="calmore">+${list.length - 3} more</span>` : ''}</div>`);
+  }
+  const prefix = `${y}-${String(m + 1).padStart(2, '0')}`;
+  const monthItems = items.filter(x => x.r.due_date.startsWith(prefix)).sort((a, b) => a.r.due_date.localeCompare(b.r.due_date));
+  const agenda = monthItems.length ? monthItems.reduce((acc, x) => { (acc[x.r.due_date] = acc[x.r.due_date] || []).push(x); return acc; }, {}) : null;
+  setActions('');
+  setBody(`<div class="c"><div class="calbar"><button class="btn sm" data-act="calprev" aria-label="Previous month">‹</button><button class="btn sm" data-act="caltoday">Today</button><button class="btn sm" data-act="calnext" aria-label="Next month">›</button><h2>${MONTHS[m]} ${y}</h2><small>${monthItems.length} due this month</small></div>
+    <div class="cal" role="grid" aria-label="${MONTHS[m]} ${y}">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<div class="dow">${d}</div>`).join('')}${cells.join('')}</div>
+    <div class="agenda">${agenda ? Object.entries(agenda).map(([d, list]) => `<div class="grp">${esc(d)}${d === today ? ' · today' : ''}</div>${list.map(chip).join('')}`).join('') : empty('Nothing due this month')}</div></div>`);
+}
 async function todayView() {
   const [q, appr] = await Promise.all([api('attention'), api('approvals')]);
   const waiting = appr.filter(a => a.status === 'pending' && (!ME.accounts || a.mine));
@@ -996,6 +1028,18 @@ document.addEventListener('click', async e => {
   const a = e.target.closest('[data-act]');
   if (!a) return;
   const act = a.dataset.act, id = a.dataset.id;
+  if (act === 'calprev' || act === 'calnext' || act === 'caltoday') {
+    const n = act === 'caltoday' ? new Date() : new Date(calMonth.y, calMonth.m + (act === 'calnext' ? 1 : -1), 1);
+    calMonth = { y: n.getFullYear(), m: n.getMonth() };
+    return render('calendar');
+  }
+  if (act === 'calopen') {
+    const hit = (window._cal || []).find(x => x.k === a.dataset.k && Number(x.r.id) === Number(a.dataset.id));
+    if (!hit) return msg('Record not found');
+    if (!can.write) return go(hit.k);
+    currentRows = [hit.r];
+    return openForm(hit.k, hit.r);
+  }
   if (act === 'close') return closeLayer();
   if (act === 'setup') return openSetup();
   if (act === 'selectmode') {

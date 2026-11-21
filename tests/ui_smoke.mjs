@@ -264,6 +264,21 @@ try {
   check('a file can be removed', !!(await waitFor(`!document.querySelector('#files a')`)));
   await ev(`document.querySelector('[data-act=close]').click()`);
 
+  // ---- calendar
+  const todayIso = await ev(`isoToday()`);
+  await api('POST', 'tasks', { title: 'Calendar check task', due_date: todayIso });
+  await goto('#/calendar');
+  check('the calendar shows a task on its due date', !!(await waitFor(`!!document.querySelector('.cal .day.now .calchip')`)));
+  const heading = await ev(`document.querySelector('.calbar h2').innerText`);
+  await click('[data-act=calnext]');
+  check('the calendar moves to the next month', !!(await waitFor(`document.querySelector('.calbar h2')?.innerText !== ${JSON.stringify(heading)}`)));
+  await click('[data-act=caltoday]');
+  await waitFor(`document.querySelector('.calbar h2')?.innerText === ${JSON.stringify(heading)}`);
+  await click('.cal .day.now .calchip');
+  check('clicking an item opens it for editing', !!(await waitFor(`document.querySelector('#f_title')?.value === 'Calendar check task'`)));
+  await ev(`document.querySelector('[data-act=close]').click()`);
+  await shot('calendar');
+
   // ---- trash and undo
   const doomed = (await api('POST', 'tasks', { title: 'Delete me by mistake' })).body.id;
   await api('DELETE', 'tasks/' + doomed);
@@ -364,7 +379,7 @@ try {
   for (const [t, body] of seed) { const r = await api('POST', t, body); if (r.status !== 200) check(`seed ${t}`, false, JSON.stringify(r)); }
   await api('POST', 'scan', {});
   const setSize = (w, h) => send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: w < 800 });
-  const PAGES = ['dashboard', 'today', 'insights', 'tasks', 'recurring_tasks', 'approvals', 'contracts', 'quotations', 'tariffs', 'transactions', 'automation', 'exceptions', 'reports', 'audit', 'ai', 'imports', 'users'];
+  const PAGES = ['dashboard', 'today', 'calendar', 'insights', 'tasks', 'recurring_tasks', 'approvals', 'contracts', 'quotations', 'tariffs', 'transactions', 'automation', 'exceptions', 'reports', 'audit', 'ai', 'imports', 'users'];
   const overflowProbe = `(() => {
     const w = document.documentElement.clientWidth;
     const scroller = '.tw,.board,.chips,.subnav,.groups,.plist,pre,.tabbar';
