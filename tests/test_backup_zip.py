@@ -95,3 +95,28 @@ class BackupZipTests(AppTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class StoredBackupTests(AppTestCase):
+    def test_automatic_backup_is_a_zip_that_restores_files(self):
+        t = self.app.add_row('tasks', {'title': 'Keep me'})['id']
+        self.app.add_attachment('tasks', t, 'doc.txt', b64(b'important'))
+        name = self.app.auto_backup(force=True)
+        self.assertTrue(name.endswith('.zip'))
+        self.assertEqual([b['name'] for b in self.app.list_backups()], [name])
+        self.app.delete_row('tasks', t)
+        for p in self.app.config.ATTACH_DIR.glob('*'):
+            p.unlink()
+        r = self.app.restore_stored_backup(name)
+        self.assertEqual(r['attachments_missing'], 0)
+        att = self.app.list_attachments('tasks', t)[0]
+        self.assertEqual(self.app.read_attachment(att['id']), ('doc.txt', b'important'))
+
+    def test_old_json_backups_still_list_and_restore(self):
+        self.app.add_row('tasks', {'title': 'Legacy'})
+        self.app.config.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        (self.app.config.BACKUP_DIR / 'backup-2025-01-01.json').write_text(json.dumps(self.app.backup_export()))
+        self.assertEqual([b['name'] for b in self.app.list_backups()], ['backup-2025-01-01.json'])
+        self.app.delete_row('tasks', self.app.read_table('tasks')[0]['id'])
+        self.app.restore_stored_backup('backup-2025-01-01.json')
+        self.assertEqual(self.app.read_table('tasks')[0]['title'], 'Legacy')

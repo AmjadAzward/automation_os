@@ -33,6 +33,9 @@ def restore_zip(b64):
     """Restore from a backup .zip (sent as base64). Only backup.json and attachments/<random name> are accepted; sizes are capped."""
     try:raw=base64.b64decode(str(b64 or ''),validate=True)
     except (binascii.Error,ValueError):raise ValueError('The backup file could not be read')
+    return restore_zip_bytes(raw)
+
+def restore_zip_bytes(raw):
     try:z=zipfile.ZipFile(io.BytesIO(raw))
     except zipfile.BadZipFile:raise ValueError('This is not a valid backup .zip')
     files={}
@@ -102,26 +105,32 @@ def _restore_tables(data,counts):
         audit(c,'restore','backup',counts)
 
 def auto_backup(force=False):
-    """Write a JSON snapshot to data/backups. One per day unless forced; keeps the newest BACKUP_KEEP."""
+    """Write a .zip (records and attached files) to data/backups. One per day unless forced; keeps the newest BACKUP_KEEP."""
     config.BACKUP_DIR.mkdir(parents=True,exist_ok=True)
     stamp=datetime.now().strftime('%Y-%m-%d-%H%M%S') if force else datetime.now().strftime('%Y-%m-%d')
-    path=config.BACKUP_DIR/f'backup-{stamp}.json'
-    if path.exists():return None
-    tmp=path.with_suffix('.tmp');tmp.write_text(json.dumps(backup_export(),ensure_ascii=False),encoding='utf-8');tmp.replace(path)
+    path=config.BACKUP_DIR/f'backup-{stamp}.zip'
+    if path.exists() or path.with_suffix('.json').exists():return None
+    tmp=path.with_suffix('.tmp');tmp.write_bytes(backup_zip());tmp.replace(path)
     try:os.chmod(path,0o600);os.chmod(config.BACKUP_DIR,0o700)   # backups hold business data: owner-only where the OS supports it
     except OSError:pass
-    for old in sorted(config.BACKUP_DIR.glob('backup-*.json'),key=lambda p:p.stat().st_mtime,reverse=True)[config.BACKUP_KEEP:]:old.unlink()
+    for old in sorted(_stored(),key=lambda p:p.stat().st_mtime,reverse=True)[config.BACKUP_KEEP:]:old.unlink()
     return path.name
+
+def _stored():
+    """Stored backups: .zip (current) and .json (older versions of this app)."""
+    return list(config.BACKUP_DIR.glob('backup-*.zip'))+list(config.BACKUP_DIR.glob('backup-*.json')) if config.BACKUP_DIR.exists() else []
 
 def list_backups():
     if not config.BACKUP_DIR.exists():return []
-    files=sorted(config.BACKUP_DIR.glob('backup-*.json'),key=lambda p:p.stat().st_mtime,reverse=True)
+    files=sorted(_stored(),key=lambda p:p.stat().st_mtime,reverse=True)
     return [{'name':p.name,'size':p.stat().st_size,'modified':datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec='seconds')} for p in files]
 
 def restore_stored_backup(name):
-    if not isinstance(name,str) or not re.fullmatch(r'backup-[0-9-]+\.json',name):raise ValueError('Invalid backup name')
+    if not isinstance(name,str) or not re.fullmatch(r'backup-[0-9-]+\.(zip|json)',name):raise ValueError('Invalid backup name')
     path=config.BACKUP_DIR/name
     if not path.is_file():raise ValueError('Backup not found')
-    try:data=json.loads(path.read_text(encoding='utf-8'))
+    try:
+        if name.endswith('.zip'):return restore_zip_bytes(path.read_bytes())
+        data=json.loads(path.read_text(encoding='utf-8'))
     except (OSError,json.JSONDecodeError) as e:raise ValueError('Backup file could not be read') from e
     return restore_backup(data)

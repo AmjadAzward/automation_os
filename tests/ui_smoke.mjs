@@ -126,7 +126,7 @@ try {
   check('approver is picked from a list of real people (not yourself)', await ev(`(() => { const o = [...document.querySelectorAll('#f_approver option')].map(x => x.value); return o.includes('bob') && o.includes('cyd') && !o.includes('ann'); })()`));
   await setVal('#f_title', 'Buy a crane'); await setVal('#f_approver', 'bob'); await setVal('#f_amount', '9000'); await submitDrawer();
   await sleep(600);
-  check('threshold blocks a large request without a second approver', (await text('#message')).includes('second approver'), await text('#message'));
+  check('threshold blocks a large request without a second approver', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('second approver')`)), await text('#message'));
   await setVal('#f_second_approver', 'cyd'); await submitDrawer();
   await waitFor(`document.body.innerText.includes('Buy a crane')`);
   check('two-step request is created and shows both steps', (await text('#content')).includes('Bob') && (await text('#content')).includes('Cyd'));
