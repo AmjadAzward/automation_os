@@ -199,7 +199,7 @@ Every task, approval and contract has a **Comment** button that opens a thread. 
 
 ### File attachments
 
-Tasks, approvals and contracts can carry up to 10 files of up to 2 MB each (open **Comment** on a record, then **Attach a file**). Files are stored in `data/attachments/` under random names, are always downloaded rather than opened in the browser, and are removed when their record is deleted. Executable and scriptable types (.exe, .bat, .js, .html, .svg and similar) are refused. Only the person who attached a file, or a manager or admin, can remove it. Attachments are **not** part of the JSON backup, so copy the `data/attachments/` folder alongside it if you need them.
+Tasks, approvals and contracts can carry up to 10 files of up to 2 MB each (open **Comment** on a record, then **Attach a file**). Files are stored in `data/attachments/` under random names, are always downloaded rather than opened in the browser, and are removed when their record is deleted. Executable and scriptable types (.exe, .bat, .js, .html, .svg and similar) are refused. Only the person who attached a file, or a manager or admin, can remove it. **Download full backup** (Reports) is a `.zip` holding the records and every attached file, and **Restore** accepts that `.zip` (old `.json` backups still work, and say how many attached files are missing). The automatic daily backups in `data/backups/` are records only, so copy `data/attachments/` too if you rely on them. Recent attachments also notify the people involved in a record, and the Audit page has a free-text search.
 
 ### Daily digest
 

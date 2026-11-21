@@ -337,10 +337,10 @@ async function insightsView() {
 }
 
 /* ---------- comments, paging ---------- */
-let commentCounts = {}, showMoreRecords = null;
+let commentCounts = {}, fileCounts = {}, showMoreRecords = null;
 const fmtSize = n => n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
 const COMMENTABLE = ['tasks', 'approvals', 'contracts'];
-const commentBtn = (key, r) => (COMMENTABLE.includes(key) ? `<button class="ln" data-act="comments" data-id="${r.id}">${commentCounts[r.id] ? `Comments (${commentCounts[r.id]})` : 'Comment'}</button>` : '');
+const commentBtn = (key, r) => (COMMENTABLE.includes(key) ? `<button class="ln" data-act="comments" data-id="${r.id}">${commentCounts[r.id] || fileCounts[r.id] ? [commentCounts[r.id] ? `Comments (${commentCounts[r.id]})` : '', fileCounts[r.id] ? `Files (${fileCounts[r.id]})` : ''].filter(Boolean).join(' · ') : 'Comment'}</button>` : '');
 
 /* ---------- bulk selection ---------- */
 const BULK = { tasks: ['status', 'delete'], contracts: ['status', 'delete'], exceptions: ['status'], quotations: ['delete'], tariffs: ['delete'], transactions: ['delete'], recurring_tasks: ['delete'] };
@@ -392,6 +392,8 @@ async function openComments(key, id) {
   };
   const drawFiles = async () => {
     const list = await api(`attachments?entity=${key}&id=${id}`);
+    fileCounts[id] = list.length;
+    if (repaintRecords) repaintRecords();
     const el = $('#files');
     if (el) el.innerHTML = list.length ? '<h3 style="margin:8px 0 0;font-size:14px">Files</h3>' + list.map(f => `<div class="cm"><div class="who"><a href="/api/attachments/${f.id}/download">${esc(f.name)}</a><small>${esc(fmtSize(f.size))} · ${esc(f.uploader)}</small>${can.write && (can.del || mineName(f.uploader)) ? `<button class="ln d" data-act="delfile" data-fid="${f.id}">Remove</button>` : ''}</div></div>`).join('') : '';
   };
@@ -487,6 +489,7 @@ async function records(key) {
   let rows = await api(key);
   currentRows = rows;
   commentCounts = COMMENTABLE.includes(key) ? await api('comments/counts?entity=' + key).catch(() => ({})) : {};
+  fileCounts = COMMENTABLE.includes(key) ? await api('attachments/counts?entity=' + key).catch(() => ({})) : {};
   selectMode = false; picked = new Set(); shownIds = [];
   bestIds = new Set();
   if (key === 'quotations') {
@@ -541,15 +544,15 @@ async function records(key) {
     const facets = await api('audit/facets').catch(() => ({ actors: [], actions: [], entities: [] }));
     const pick = (id, label, list) => `<div class="field" style="min-width:140px"><label for="${id}">${label}</label><select id="${id}"><option value="">All</option>${list.map(v => `<option value="${esc(v)}">${esc(human(v))}</option>`).join('')}</select></div>`;
     $('#auditfilters').innerHTML = pick('af_actor', 'Person', facets.actors) + pick('af_action', 'Action', facets.actions) + pick('af_entity', 'Record type', facets.entities)
-      + '<div class="field"><label for="af_from">From</label><input type="date" id="af_from"></div><div class="field"><label for="af_to">To</label><input type="date" id="af_to"></div><button class="btn" id="af_reset">Reset</button>';
+      + '<div class="field" style="min-width:160px"><label for="af_q">Search</label><input type="search" id="af_q" maxlength="100" placeholder="Words in the details"></div><div class="field"><label for="af_from">From</label><input type="date" id="af_from"></div><div class="field"><label for="af_to">To</label><input type="date" id="af_to"></div><button class="btn" id="af_reset">Reset</button>';
     const reload = async () => {
       const p = new URLSearchParams();
-      [['actor', 'af_actor'], ['action', 'af_action'], ['entity', 'af_entity'], ['since', 'af_from'], ['until', 'af_to']].forEach(([k, id]) => { const v = $('#' + id).value; if (v) p.set(k, v); });
+      [['actor', 'af_actor'], ['action', 'af_action'], ['entity', 'af_entity'], ['since', 'af_from'], ['until', 'af_to'], ['q', 'af_q']].forEach(([k, id]) => { const v = $('#' + id).value; if (v) p.set(k, v); });
       p.set('limit', '2000');
       try { rows = await api('audit?' + p.toString()); currentRows = rows; state.limit = 100; paint(); } catch (ex) { msg(ex.message); }
     };
     $('#auditfilters').onchange = reload;
-    $('#af_reset').onclick = () => { ['af_actor', 'af_action', 'af_entity', 'af_from', 'af_to'].forEach(id => { $('#' + id).value = ''; }); reload(); };
+    $('#af_reset').onclick = () => { ['af_actor', 'af_action', 'af_entity', 'af_from', 'af_to', 'af_q'].forEach(id => { $('#' + id).value = ''; }); reload(); };
   }
   paint();
   if (window._pendingSearch) { state.q = window._pendingSearch; $('#q').value = state.q; window._pendingSearch = null; paint(); }
@@ -707,14 +710,19 @@ async function reportsView() {
     <section class="c s6"><div class="hd"><div><h2>Workload by owner</h2><small>Assignment, completion and overdue exposure</small></div></div>${plainTable(r.workload)}</section>
     <section class="c s6"><div class="hd"><div><h2>Workload by department</h2><small>Total and open task volume</small></div></div>${plainTable(r.departments)}</section>
     <section class="c s6"><div class="hd"><div><h2>Open exception severity</h2><small>Current risk distribution</small></div></div>${plainTable(r.exception_severity)}</section>
-    <section class="c s6"><div class="hd"><div><h2>Data backup</h2><small>Portable JSON snapshot of all local records</small></div></div><p>A backup contains operational records, settings, audit history and automation runs. Store it securely because it may include business data.</p>${can.admin ? `<div class="note"><b>Restore</b> replaces current tasks, approvals, quotes, contracts, rates, billing and exceptions with the contents of a backup file. Download a fresh backup first.</div><div class="acts" style="margin-top:12px"><label class="btn bad" for="restoreFile" style="cursor:pointer">Restore from backup…</label><input id="restoreFile" type="file" accept=".json,application/json" class="hidden"></div>` : ''}</section>${backupCard}</div>`);
+    <section class="c s6"><div class="hd"><div><h2>Data backup</h2><small>One .zip with all records and attached files</small></div></div><p>A backup contains operational records, settings, audit history and automation runs. Store it securely because it may include business data.</p>${can.admin ? `<div class="note"><b>Restore</b> replaces current tasks, approvals, quotes, contracts, rates, billing and exceptions with the contents of a backup file. Download a fresh backup first.</div><div class="acts" style="margin-top:12px"><label class="btn bad" for="restoreFile" style="cursor:pointer">Restore from backup…</label><input id="restoreFile" type="file" accept=".zip,.json,application/zip,application/json" class="hidden"></div>` : ''}</section>${backupCard}</div>`);
   if ($('#restoreFile')) $('#restoreFile').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     try {
-      const data = JSON.parse(await f.text());
+      let payload;
+      if (/\.zip$/i.test(f.name)) {
+        const bytes = new Uint8Array(await f.arrayBuffer()); let bin = '';
+        for (let i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode(...bytes.subarray(i, i + 32768));
+        payload = { zip: btoa(bin) };
+      } else payload = JSON.parse(await f.text());
       if (!confirm(`Replace the current data with the backup "${f.name}"? This cannot be undone.`)) return;
-      const r = await api('restore', { method: 'POST', body: JSON.stringify(data) });
-      msg(`Restored ${Object.values(r.restored).reduce((a, b) => a + b, 0)} records`); render('reports');
+      const r = await api('restore', { method: 'POST', body: JSON.stringify(payload) });
+      msg(`Restored ${Object.values(r.restored).reduce((a, b) => a + b, 0)} records` + (r.attachments_missing ? `. ${r.attachments_missing} attached file${r.attachments_missing === 1 ? ' is' : 's are'} missing from this backup (use the .zip backup to include files).` : '')); render('reports');
     } catch (ex) { msg('Restore failed: ' + ex.message); } finally { e.target.value = ''; }
   };
 }
@@ -1074,7 +1082,7 @@ document.addEventListener('click', async e => {
   if (act === 'dlreport') return downloadJson(window._report, `automation-os-report-${stamp()}.json`);
   if (act === 'dlbackup') {
     a.disabled = true; a.textContent = 'Preparing…';
-    try { downloadJson(await api('backup'), `automation-os-backup-${stamp()}.json`); msg('Backup downloaded'); } catch (ex) { msg(ex.message); }
+    try { const r = await fetch('/api/backup.zip'); if (!r.ok) throw Error((await r.json().catch(() => ({}))).error || 'Backup failed'); downloadBlob(await r.blob(), `automation-os-backup-${stamp()}.zip`); msg('Backup downloaded (includes attached files)'); } catch (ex) { msg(ex.message); }
     finally { a.disabled = false; a.textContent = 'Download full backup'; }
   }
 });

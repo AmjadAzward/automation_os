@@ -48,6 +48,16 @@ def _days_old(iso):
         return max(0,(datetime.now(moment.tzinfo)-moment).days)
     except (TypeError,ValueError):return 99
 
+def _events(c):
+    """Recent comments and attachments as one list of things that happened to a record."""
+    out=[]
+    for m in c.execute('SELECT * FROM comments ORDER BY id DESC LIMIT 300'):
+        excerpt=m['body'] if len(m['body'])<=70 else m['body'][:67]+'...'
+        out.append({'key':f"comment:{m['id']}",'entity':m['entity'],'entity_id':m['entity_id'],'author':m['author'],'at':m['at'],'what':f'commented: \u201c{excerpt}\u201d'})
+    for a in c.execute('SELECT * FROM attachments ORDER BY id DESC LIMIT 100'):
+        out.append({'key':f"attachment:{a['id']}",'entity':a['entity'],'entity_id':a['entity_id'],'author':a['uploader'],'at':a['at'],'what':f"attached \u201c{a['name']}\u201d"})
+    return out
+
 def comment_notifications(user):
     """Recent comments, from other people, on requests, tasks and contracts you are involved in."""
     ids=identities(user)
@@ -56,7 +66,7 @@ def comment_notifications(user):
     out=[]
     with db() as c:
         names={r['username'].lower():r['display_name'] for r in c.execute('SELECT username,display_name FROM users')}
-        for m in c.execute('SELECT * FROM comments ORDER BY id DESC LIMIT 300'):
+        for m in _events(c):
             if _days_old(m['at'])>3 or m['author'].lower() in ids:continue
             if m['entity']=='approvals':
                 row=c.execute('SELECT title,requester FROM approvals WHERE id=?',(m['entity_id'],)).fetchone()
@@ -73,8 +83,7 @@ def comment_notifications(user):
                 people,title,page={str(row['owner']).strip().lower()},row['contract'],'contracts'
             if not (people&mine):continue
             who=names.get(m['author'].lower(),m['author'])
-            excerpt=m['body'] if len(m['body'])<=70 else m['body'][:67]+'...'
-            out.append({'key':f"comment:{m['id']}",'kind':'comment','severity':'low','title':title,'detail':f'{who} commented: \u201c{excerpt}\u201d','page':page})
+            out.append({'key':m['key'],'kind':'comment','severity':'low','title':title,'detail':f"{who} {m['what']}",'page':page})
     return out[:20]
 
 def all_notifications(user=None):

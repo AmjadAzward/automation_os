@@ -194,7 +194,7 @@ def required_role(method,path):
     if method=='DELETE' and (path.startswith('/api/comments/') or path.startswith('/api/attachments/')):return 'member'      # the function checks it is your own comment
     if path in ('/api/auth/password','/api/auth/logout-all','/api/auth/profile','/api/digest/test'):return 'viewer'
     if path.startswith('/api/users'):return 'admin'
-    if method=='GET':return 'admin' if path in ('/api/backup','/api/backups') else 'viewer'
+    if method=='GET':return 'admin' if path in ('/api/backup','/api/backup.zip','/api/backups') else 'viewer'
     if path in ('/api/automation/settings','/api/restore','/api/backups','/api/backups/restore'):return 'admin'
     if method=='DELETE':return 'manager'
     return 'member'

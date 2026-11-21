@@ -76,11 +76,15 @@ def _valid_day(value,label):
     except ValueError as e:raise ValueError(f'{label} must be a date like 2026-01-31') from e
     return value
 
-def audit_query(actor='',action='',entity='',since='',until='',limit=500):
+def audit_query(actor='',action='',entity='',since='',until='',limit=500,q=''):
     """Search the audit history. Every filter is optional and values are always bound as parameters."""
     where,args=[],[]
     for column,value in (('actor',actor),('action',action),('entity',entity)):
         if str(value or '').strip():where.append(f'{column}=?');args.append(str(value).strip())
+    q=str(q or '').strip()[:100]
+    if q:
+        like='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
+        where.append("(actor LIKE ? ESCAPE '\\' OR action LIKE ? ESCAPE '\\' OR entity LIKE ? ESCAPE '\\' OR details LIKE ? ESCAPE '\\')");args+=[like]*4
     since,until=_valid_day(since,'From'),_valid_day(until,'To')
     if since:where.append('substr(at,1,10)>=?');args.append(since)
     if until:where.append('substr(at,1,10)<=?');args.append(until)

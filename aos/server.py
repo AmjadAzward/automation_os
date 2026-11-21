@@ -20,7 +20,7 @@ from .comments import add_comment, all_notifications, comment_counts, delete_com
 from .approvals import approvals_list, decide_approval, delete_approval_guard, edit_approval_guard, notifications, people, prepare_approval_payload, set_delegation, withdraw_approval
 from .records import add_row, bulk_action, bulk_exception_status, delete_row, import_csv, search, update_row, update_status
 from .reports import audit_facets, audit_query, trends, attention_queue, compare_quotes, executive_report, insights, overview
-from .backups import auto_backup, backup_export, list_backups, restore_backup, restore_stored_backup
+from .backups import auto_backup, backup_export, backup_zip, restore_zip, list_backups, restore_backup, restore_stored_backup
 from .automation import ai, scan, scheduler
 
 _WRITES={}
@@ -88,7 +88,7 @@ class Handler(BaseHTTPRequestHandler):
         return True
     def json_body(self):
         length=int(self.headers.get('Content-Length','0'))
-        if not 0<length<=config.MAX_BODY:raise ValueError('Request body missing or too large')
+        if not 0<length<=(config.MAX_RESTORE if urlparse(self.path).path=='/api/restore' else config.MAX_BODY):raise ValueError('Request body missing or too large')
         data=json.loads(self.rfile.read(length))
         if not isinstance(data,dict):raise ValueError('JSON object required')
         return data
@@ -111,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
             if path in ('/api/audit','/api/trends'):
                 q=parse_qs(urlparse(self.path).query);g=lambda k:(q.get(k) or [''])[0]
                 if path=='/api/trends':return self.send(trends(g('weeks') or 8))
-                return self.send(audit_query(g('actor'),g('action'),g('entity'),g('since'),g('until'),g('limit') or 500))
+                return self.send(audit_query(g('actor'),g('action'),g('entity'),g('since'),g('until'),g('limit') or 500,g('q')))
             if path=='/api/audit/facets':return self.send(audit_facets())
             if path in ('/api/comments','/api/comments/counts'):
                 q=parse_qs(urlparse(self.path).query);g=lambda k:(q.get(k) or [''])[0]
@@ -137,6 +137,8 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/insights':return self.send(insights())
             if path=='/api/attention':return self.send(attention_queue())
             if path=='/api/reports/executive':return self.send(executive_report())
+            if path=='/api/backup.zip':
+                data=backup_zip();self.send_response(200);self.send_header('Content-Type','application/zip');self.send_header('Content-Disposition','attachment; filename="automation-os-backup.zip"');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
             if path=='/api/backup':return self.send(backup_export())
             if path=='/api/automation/settings':return self.send(automation_settings())
             if path=='/api/automation/runs':return self.send(automation_runs())
@@ -181,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/exceptions/bulk':return self.send(bulk_exception_status(obj.get('ids'),obj.get('status')))
             if path=='/api/backups':return self.send({'ok':True,'name':auto_backup(force=True)})
             if path=='/api/backups/restore':return self.send(restore_stored_backup(obj.get('name')))
-            if path=='/api/restore':return self.send(restore_backup(obj))
+            if path=='/api/restore':return self.send(restore_zip(obj['zip']) if isinstance(obj.get('zip'),str) else restore_backup(obj))
             if path=='/api/approvals/withdraw':return self.send(withdraw_approval(int(obj.get('id')),self.user,obj.get('reason','')))
             if path=='/api/approvals/decision':return self.send(decide_approval(int(obj.get('id')),obj.get('decision'),obj.get('comment',''),self.user))
             if path.startswith('/api/'):

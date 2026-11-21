@@ -162,7 +162,7 @@ try {
   await click('[data-act=decide][data-d=approved]'); await waitFor(`!!document.querySelector('#dform')`); await submitDrawer();
   check('final approval completes the request', !!(await waitFor(`document.querySelector('#message')?.innerText.includes('Request approved')`)));
   await sleep(500); await shot('approval-done');
-  check('approved card moves to the Approved column', await ev(`document.querySelector('.col[data-s=approved]')?.innerText.includes('Buy a crane')`));
+  check('approved card moves to the Approved column', !!(await waitFor(`document.querySelector('.col[data-s=approved]')?.innerText.includes('Buy a crane')`)));
 
   // ---- the requester is told the outcome
   await signOut(); await signIn('ann'); await waitFor(`document.querySelector('#userchip').innerText.includes('Ann')`);
@@ -257,6 +257,7 @@ try {
   await ev(`${taskCard}.querySelector('[data-act=comments]').click()`); await waitFor(`!!document.querySelector('#fileinput')`);
   await ev(`(() => { const dt = new DataTransfer(); dt.items.add(new File(['hello file'], 'notes.txt', { type: 'text/plain' })); const i = document.querySelector('#fileinput'); i.files = dt.files; i.dispatchEvent(new Event('change')); })()`);
   check('a file can be attached and appears in the drawer', !!(await waitFor(`document.querySelector('#files')?.innerText.includes('notes.txt')`)));
+  check('the card shows the file count', !!(await waitFor(`${taskCard}?.innerText.includes('Files (1)')`)));
   const dl = await ev(`fetch(document.querySelector('#files a').getAttribute('href')).then(async r => ({ t: await r.text(), d: r.headers.get('content-disposition') }))`);
   check('the file downloads intact, as an attachment', dl.t === 'hello file' && /^attachment/.test(dl.d), JSON.stringify(dl));
   await ev(`document.querySelector('[data-act=delfile]').click()`);
@@ -274,6 +275,14 @@ try {
   await setVal('#af_actor', 'ann');
   await ev(`document.querySelector('#af_actor').dispatchEvent(new Event('change', { bubbles: true }))`);
   check('the audit page can be filtered by person', !!(await waitFor(`(() => { const rows = [...document.querySelectorAll('.tl .fi')]; return rows.length > 0 && rows.every(r => r.innerText.includes('by ann')); })()`)));
+
+  await ev(`document.querySelector('#af_reset').click()`);
+  await setVal('#af_q', 'attach');
+  await ev(`document.querySelector('#af_q').dispatchEvent(new Event('change', { bubbles: true }))`);
+  check('the audit page can be searched by words', !!(await waitFor(`(() => { const rows = [...document.querySelectorAll('.tl .fi')]; return rows.length > 0 && rows.every(r => /attach/i.test(r.innerText)); })()`)));
+  await ev(`document.querySelector('#af_reset').click()`);
+  const zip = await ev(`fetch('/api/backup.zip').then(async r => ({ s: r.status, t: r.headers.get('content-type'), b: new Uint8Array(await r.arrayBuffer()).slice(0, 2).join() }))`);
+  check('the full backup downloads as a zip', zip.s === 200 && zip.t === 'application/zip' && zip.b === '80,75', JSON.stringify(zip));
 
   // ---- import preview and duplicates
   await goto('#/imports');
