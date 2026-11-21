@@ -48,7 +48,10 @@ class Handler(BaseHTTPRequestHandler):
     def fail(self,e):
         if isinstance(e,AuthError):return self.send({'error':str(e),'login':True},401)
         if isinstance(e,Forbidden):return self.send({'error':str(e)},403)
-        self.send({'error':str(e)},400 if isinstance(e,(ValueError,sqlite3.IntegrityError)) else 500)
+        if isinstance(e,OverflowError):return self.send({'error':'That number is too large'},400)      # e.g. an absurd record id
+        if isinstance(e,(ValueError,sqlite3.IntegrityError)):return self.send({'error':str(e)},400)
+        print('[ERROR]',type(e).__name__,e)                                                          # details stay in the server log, not in the reply
+        self.send({'error':'Something went wrong on the server. Please try again.'},500)
     def secure(self):
         """True when a TLS-terminating proxy told us the browser is on HTTPS, so the cookie can be marked Secure."""
         return (self.headers.get('X-Forwarded-Proto') or '').split(',')[0].strip().lower()=='https'

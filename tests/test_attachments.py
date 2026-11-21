@@ -116,3 +116,29 @@ class AttachmentTests(AppTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ErrorHandlingTests(AppTestCase):
+    def test_absurd_ids_are_a_clean_400_and_server_errors_do_not_leak_details(self):
+        srv = ThreadingHTTPServer(('127.0.0.1', 0), self.app.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection('127.0.0.1', srv.server_address[1])
+            for path in ('/api/attachments/99999999999999999999/download', '/api/comments?entity=tasks&id=99999999999999999999'):
+                c.request('GET', path)
+                r = c.getresponse(); body = r.read()
+                self.assertEqual(r.status, 400, path)
+                self.assertNotIn(b'SQLite', body)
+            import sys
+            mod = sys.modules['aos.server']
+            original = mod.list_trash
+            mod.list_trash = lambda: (_ for _ in ()).throw(RuntimeError('secret path C:/x/y'))
+            try:
+                c.request('GET', '/api/trash')
+                r = c.getresponse(); body = r.read()
+                self.assertEqual(r.status, 500)
+                self.assertNotIn(b'secret', body)
+            finally:
+                mod.list_trash = original
+        finally:
+            srv.shutdown(); srv.server_close()
