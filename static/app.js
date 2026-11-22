@@ -536,7 +536,7 @@ async function records(key) {
   let state = { q: '', view: cfg.views.includes(saved) ? saved : cfg.views[0], filter: 'all', sort: null, limit: 100 };
   const cmp = key === 'quotations' ? await api('comparison') : null;
   const canCreate = !cfg.readonly && can.write;
-  setActions(`${!cfg.readonly && can.write ? '<button class="btn" data-go="imports">Import CSV</button>' : ''}${bulkOps(key).length && rows.length ? '<button class="btn" data-act="selectmode">Select</button>' : ''}<button class="btn" data-act="export">Export CSV</button>${canCreate ? `<button class="btn pri" data-act="new">+ New ${cfg.noun}</button>` : ''}`);
+  setActions(`${!cfg.readonly && can.write ? '<button class="btn" data-go="imports">Import CSV</button>' : ''}${bulkOps(key).length && rows.length ? '<button class="btn" data-act="selectmode">Select</button>' : ''}<button class="btn" data-act="export">Export CSV</button><button class="btn" data-act="print">Print</button>${canCreate ? `<button class="btn pri" data-act="new">+ New ${cfg.noun}</button>` : ''}`);
   setBody(`${cmp && cmp.length ? `<div class="c" style="margin-bottom:16px"><div class="hd"><div><h2>Best value comparison</h2><small>Based on total quoted price. Check lead time, scope and terms before deciding; currencies stay separate.</small></div></div>${plainTable(cmp)}</div>` : ''}
     ${key === 'audit' ? '<div class="tools" id="auditfilters"></div>' : ''}<div class="tools"><div class="sbox"><input id="q" placeholder="Search ${esc(PAGES[key][0].toLowerCase())}…" aria-label="Search"></div>
     ${cfg.views.length > 1 ? `<div class="seg" id="views">${cfg.views.map(v => `<button data-v="${v}">${v}</button>`).join('')}</div>` : ''}<span class="count" id="count"></span></div>
@@ -1121,6 +1121,7 @@ document.addEventListener('click', async e => {
   }
   if (act === 'decide') return openDecision(id, a.dataset.d);
   if (act === 'export') return exportCsv(currentRows, active);
+  if (act === 'print') return window.print();
   if (act === 'scan') return runScan(a);
   if (act === 'demo') return loadDemo();
   if (act === 'selall') return $$('.exc').forEach(x => x.checked = true);
