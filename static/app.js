@@ -1191,3 +1191,8 @@ window.addEventListener('hashchange', route);
 setInterval(paintScan, 30000);
 setInterval(refreshBadges, 60000);
 boot();
+
+// Printed pages are always light, whatever theme is on screen (dark text on a dark page prints as a blank sheet).
+let themeBeforePrint = null;
+window.addEventListener('beforeprint', () => { const r = document.documentElement; themeBeforePrint = r.getAttribute('data-theme'); r.setAttribute('data-theme', 'light'); });
+window.addEventListener('afterprint', () => { const r = document.documentElement; if (themeBeforePrint === null) r.removeAttribute('data-theme'); else r.setAttribute('data-theme', themeBeforePrint); });
