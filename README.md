@@ -21,6 +21,23 @@ Automation OS is a dependency-free operations platform built with the Python sta
 
 The application binds to localhost by default, keeps its database on your machine and requires no paid APIs, subscriptions or cloud hosting.
 
+## Screenshots
+
+Captured from a sample database; your own data will look different. The theme follows your system setting (dark here) and can be switched with the button in the top bar.
+
+| | |
+|---|---|
+| ![Command Center](docs/screenshots/dashboard.png) | ![Work Queue](docs/screenshots/work-queue.png) |
+| **Command Center**: totals, completion and what needs you | **Work Queue**: board, card and table views |
+| ![Calendar](docs/screenshots/calendar.png) | ![Approvals](docs/screenshots/approvals.png) |
+| **Calendar**: task and contract due dates by month | **Approval Center**: multi-stage approvals |
+| ![Supplier Comparison](docs/screenshots/supplier-comparison.png) | ![Trash](docs/screenshots/trash.png) |
+| **Supplier Comparison**: equal offers side by side | **Trash**: restore anything deleted in the last 30 days |
+
+On a phone the top bar becomes a bottom tab bar:
+
+<img src="docs/screenshots/mobile-dashboard.png" alt="Command Center on a phone" width="260">
+
 ## Highlights
 
 | Area | Capabilities |
@@ -36,8 +53,11 @@ The application binds to localhost by default, keeps its database on your machin
 | Revenue Assurance | Approved tariff master and automated billing shortfall detection |
 | Exception Management | Severity, status workflows and automatic resolution when conditions clear |
 | Performance Insights | Overdue work, upcoming deadlines, completion rates and recent activity |
-| Reports and Backup | Workload analytics, financial exposure, savings opportunities and JSON backup |
-| Data Portability | CSV import and export, search, sorting, duplicating, editing, deletion with undo, JSON backup and restore |
+| Calendar | Month view of task and contract due dates, with an agenda list on phones |
+| Files and Comments | Threads and up to 10 attached files per task, approval or contract, with notifications |
+| Trash | Deleted records are kept 30 days with their comments and files, and can be restored |
+| Reports and Backup | Workload analytics, financial exposure, savings opportunities, searchable audit history and full `.zip` backups (records and files) |
+| Data Portability | CSV import and export, search, sorting, duplicating, editing, deletion with undo, print, full backup and restore |
 | Local AI | Optional Ollama-powered analysis without sending data to a cloud model |
 | Auditability | Persistent history for creates, updates, deletions and automation events |
 
@@ -58,6 +78,8 @@ The application binds to localhost by default, keeps its database on your machin
 | `n` | New record on the current page |
 | `r` | Run an automation scan |
 | `t` | Toggle light and dark theme |
+| `g` then a letter | Go to a page (for example `g` `l` for the calendar) |
+| `?` | Show every shortcut |
 
 The Ctrl+K palette also searches your records (tasks, approvals, contracts, quotes, rates, billing and exceptions) and opens the matching page with the search filled in.
 
@@ -150,6 +172,10 @@ automation_os/
 |   |-- settings.py        Automation settings
 |   |-- accounts.py        Users, passwords, sessions, roles
 |   |-- approvals.py       Multi-stage approvals, cover, people, notifications
+|   |-- comments.py        Comment threads and the events behind notifications
+|   |-- attachments.py     Safe file storage and downloads
+|   |-- trash.py           30-day trash and restore
+|   |-- digest.py          Daily digest and email outbox
 |   |-- records.py         Record CRUD, bulk changes, CSV import, search
 |   |-- reports.py         Dashboards and reports
 |   |-- backups.py         Backup, restore, daily automatic backups
@@ -161,7 +187,7 @@ automation_os/
 |   `-- favicon*.svg/png   Browser tab icons
 |-- tests/                 Backend unit tests and a dependency-free browser smoke test
 |-- samples/               CSV import templates
-|-- docs/                  API documentation
+|-- docs/                  API documentation and README screenshots
 |-- START_WINDOWS.bat      Windows launcher
 `-- LICENSE                MIT License
 ```
@@ -252,7 +278,7 @@ The bell in the top bar lists what needs your attention, updated every minute: a
 
 ## Backups
 
-A snapshot is written to `data/backups/` once a day while the server runs (the newest 14 are kept). The Reports page can create one on demand and restore from any stored or downloaded backup. A restore is all-or-nothing: an invalid file changes nothing.
+A snapshot (a `.zip` with your records and attached files) is written to `data/backups/` once a day while the server runs; the newest 14 are kept. The Reports page can create one on demand, download a full backup and restore from any stored or downloaded one. Older `.json` backups still restore. A restore is all-or-nothing: an invalid file changes nothing.
 
 ## Optional password
 
@@ -279,7 +305,7 @@ Keep it bound to `127.0.0.1`. Do not expose port `8765` to the public internet o
 python -m unittest discover -s tests -v
 ```
 
-Tests use a temporary database and never touch your real data.
+About 290 backend tests plus the browser smoke test run in a few minutes. Tests use a temporary database and never touch your real data.
 
 ## Continuous integration
 
@@ -291,7 +317,7 @@ Tests use a temporary database and never touch your real data.
 node tests/ui_smoke.mjs
 ```
 
-Needs Node 22+ and Chrome or Edge (set `BROWSER=/path/to/browser` if it is not found). It starts its own server on a temporary database and drives a real browser through sign-in, roles, a two-step approval across three people, and a responsive check at 360, 390, 768, 1024 and 1440 pixels (no sideways scrolling, tap-target sizes, bottom tab bar). Set `SHOTS=/some/folder` to save screenshots. No npm packages are required.
+Needs Node 22+ and Chrome or Edge (set `BROWSER=/path/to/browser` if it is not found). It starts its own server on a temporary database and drives a real browser through sign-in, roles, a two-step approval across three people, and a responsive check at 360, 390, 768, 1024 and 1440 pixels (no sideways scrolling, tap-target sizes, bottom tab bar). Set `SHOTS=/some/folder` to save screenshots of the flow it walks through. No npm packages are required.
 
 ## Roadmap
 
