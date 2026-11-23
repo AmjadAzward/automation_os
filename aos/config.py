@@ -54,3 +54,4 @@ PUBLIC_URL=os.getenv('AUTOMATION_PUBLIC_URL',f'http://{HOST}:{PORT}')
 OUTBOX_DIR=DB.parent/'outbox'
 CATEGORIES=('Purchase','Operational','Contract','Payment','Other')
 COMMENT_ENTITIES=('tasks','approvals','contracts')
+ASSET_STATES=('in_service','maintenance','retired')

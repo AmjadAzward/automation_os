@@ -53,7 +53,8 @@ On a phone the top bar becomes a bottom tab bar:
 | Revenue Assurance | Approved tariff master and automated billing shortfall detection |
 | Exception Management | Severity, status workflows and automatic resolution when conditions clear |
 | Performance Insights | Overdue work, upcoming deadlines, completion rates and recent activity |
-| Calendar | Month view of task and contract due dates, with an agenda list on phones |
+| Equipment Register | Equipment, vehicles and tools with tag, location, owner, state and next service date (shown on the calendar) |
+| Calendar | Month view of task, contract and equipment service dates, with an agenda list on phones |
 | Files and Comments | Threads and up to 10 attached files per task, approval or contract, with notifications |
 | Trash | Deleted records are kept 30 days with their comments and files, and can be restored |
 | Reports and Backup | Workload analytics, financial exposure, savings opportunities, searchable audit history and full `.zip` backups (records and files) |

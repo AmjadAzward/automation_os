@@ -289,6 +289,13 @@ try {
   await ev(`document.querySelector('[data-act=close]').click()`);
   await shot('calendar');
 
+  // ---- equipment register
+  await api('POST', 'assets', { name: 'Smoke test tug', tag: 'SMK-1', next_service: todayIso });
+  await goto('#/assets'); await ev(`render(active)`);
+  check('the equipment register lists an asset', !!(await waitFor(`document.body.innerText.includes('Smoke test tug')`)));
+  await goto('#/calendar'); await ev(`render(active)`);
+  check('the calendar shows the equipment service date', !!(await waitFor(`[...document.querySelectorAll('.cal .calchip')].some(c => c.innerText.includes('Service: Smoke test tug'))`)));
+
   // ---- trash and undo
   const doomed = (await api('POST', 'tasks', { title: 'Delete me by mistake' })).body.id;
   await api('DELETE', 'tasks/' + doomed);
@@ -389,7 +396,7 @@ try {
   for (const [t, body] of seed) { const r = await api('POST', t, body); if (r.status !== 200) check(`seed ${t}`, false, JSON.stringify(r)); }
   await api('POST', 'scan', {});
   const setSize = (w, h) => send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: w < 800 });
-  const PAGES = ['dashboard', 'today', 'calendar', 'insights', 'tasks', 'recurring_tasks', 'approvals', 'contracts', 'quotations', 'tariffs', 'transactions', 'automation', 'exceptions', 'reports', 'audit', 'ai', 'imports', 'users'];
+  const PAGES = ['dashboard', 'today', 'calendar', 'insights', 'tasks', 'recurring_tasks', 'assets', 'approvals', 'contracts', 'quotations', 'tariffs', 'transactions', 'automation', 'exceptions', 'reports', 'audit', 'ai', 'imports', 'users'];
   const overflowProbe = `(() => {
     const w = document.documentElement.clientWidth;
     const scroller = '.tw,.board,.chips,.subnav,.groups,.plist,pre,.tabbar';

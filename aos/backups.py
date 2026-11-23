@@ -15,10 +15,10 @@ from .attachments import STORED_RE
 from .trash import trashed_files
 
 def backup_export():
-    tables=('tasks','recurring_tasks','approvals','approval_steps','comments','attachments','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs')
+    tables=('tasks','recurring_tasks','approvals','approval_steps','comments','attachments','quotations','contracts','tariffs','transactions','assets','exceptions','audit','automation_runs')
     return {'format':'automation-os-backup','version':1,'exported_at':now(),'settings':automation_settings(),'data':{t:read_table(t,3000) for t in tables}}
 
-RESTORE_TABLES=('tasks','recurring_tasks','approvals','approval_steps','comments','attachments','quotations','contracts','tariffs','transactions','exceptions','automation_runs')
+RESTORE_TABLES=('tasks','recurring_tasks','approvals','approval_steps','comments','attachments','quotations','contracts','tariffs','transactions','assets','exceptions','automation_runs')
 
 def backup_zip():
     """One .zip holding backup.json and every attached file."""

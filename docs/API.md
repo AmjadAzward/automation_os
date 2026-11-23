@@ -6,9 +6,9 @@
 
 **POST** `/api/status`: `{"table":"tasks|contracts|exceptions","id":1,"status":"open|in_progress|blocked|done"}`.
 
-**GET** `/api/approvals`, `/api/recurring_tasks`, `/api/backup`, `/api/automation/runs`, `/api/reports/executive`.
+**GET** `/api/approvals`, `/api/recurring_tasks`, `/api/assets`, `/api/backup`, `/api/automation/runs`, `/api/reports/executive`.
 
-**POST** `/api/approvals`, `/api/recurring_tasks`: create records. **POST** `/api/approvals/decision`: `{"id":1,"decision":"approved|rejected","comment":""}` (final, one decision per request; approver must differ from requester).
+**POST** `/api/approvals`, `/api/recurring_tasks`, `/api/assets`: create records (an asset needs `name` and `tag`; `state` is `in_service`, `maintenance` or `retired`; `next_service` is `YYYY-MM-DD`). **POST** `/api/approvals/decision`: `{"id":1,"decision":"approved|rejected","comment":""}` (final, one decision per request; approver must differ from requester).
 
 **POST** `/api/restore`: a file produced by `/api/backup`. Replaces tasks, approvals, quotations, contracts, tariffs, transactions, exceptions and run history in one transaction; an invalid file changes nothing.
 

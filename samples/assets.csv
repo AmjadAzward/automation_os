@@ -1,0 +1,3 @@
+name,tag,location,owner,state,next_service,notes
+Baggage tug 1,TUG-001,Apron A,Operations,in_service,2026-12-15,Hydraulics checked in October
+Forklift,FLT-014,Warehouse,Logistics,maintenance,2026-12-01,Awaiting parts

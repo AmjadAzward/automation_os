@@ -27,6 +27,7 @@ const ICON = {
   today: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   insights: '<path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/>',
   tasks: '<path d="M9 5h10M9 12h10M9 19h10"/><path d="m3 5 1.3 1.3L6.5 4M3 12l1.3 1.3L6.5 11M3 19l1.3 1.3L6.5 18"/>',
+  assets: '<path d="M14.7 6.3a4 4 0 0 0-5 5L4 17l3 3 5.7-5.7a4 4 0 0 0 5-5l-2.4 2.4-2.6-.6-.6-2.6z"/>',
   recurring_tasks: '<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>',
   approvals: '<circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9"/>',
   contracts: '<path d="M7 3h10l3 3v15H7z"/><path d="M17 3v4h4M10 12h7M10 16h7"/>',
@@ -48,10 +49,11 @@ const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k] || ICON.
 const PAGES = {
   dashboard: ['Command Center', 'Your operations at a glance'],
   today: ['Today', 'What needs attention right now'],
-  calendar: ['Calendar', 'Due dates for tasks and contract obligations'],
+  calendar: ['Calendar', 'Due dates for tasks and contracts, and equipment service dates'],
   insights: ['Performance Insights', 'Deadlines, risk and completion trends'],
   tasks: ['Work Queue', 'Assign, monitor and close tasks'],
   recurring_tasks: ['Recurring Tasks', 'Routine work that generates itself'],
+  assets: ['Equipment Register', 'Equipment, vehicles and tools, and when each is next serviced'],
   approvals: ['Approval Center', 'Review and decide controlled requests'],
   contracts: ['Contract Obligations', 'Deadlines and commitments to counterparties'],
   quotations: ['Supplier Comparison', 'Compare equivalent RFQ offers'],
@@ -68,7 +70,7 @@ const PAGES = {
 };
 const GROUPS = [
   ['Overview', ['dashboard', 'today', 'calendar', 'insights']],
-  ['Work', ['tasks', 'recurring_tasks', 'approvals', 'contracts']],
+  ['Work', ['tasks', 'recurring_tasks', 'approvals', 'contracts', 'assets']],
   ['Commercial', ['quotations', 'tariffs', 'transactions']],
   ['Control', ['automation', 'exceptions', 'reports', 'audit']],
   ['Tools', ['ai', 'imports', 'trash', 'users']]
@@ -78,6 +80,7 @@ const groupOf = k => GROUPS.find(g => g[1].includes(k)) || GROUPS[0];
 /* ---------- field definitions (create / edit / import) ---------- */
 const defs = {
   tasks: [['title','Task title','text',1],['department','Department'],['owner','Owner'],['due_date','Due date','date'],['status','Status','select:open,in_progress,blocked,done'],['priority','Priority','select:low,medium,high']],
+  assets: [['name','Name','text',1],['tag','Asset tag / serial','text',1],['location','Location'],['owner','Owner'],['state','State','select:in_service,maintenance,retired'],['next_service','Next service date','date'],['notes','Notes','area']],
   recurring_tasks: [['title','Task title','text',1],['department','Department'],['owner','Owner'],['priority','Priority','select:low,medium,high'],['frequency','Frequency','select:daily,weekly,monthly'],['next_due','Next generation date','date',1],['active','Active','select:yes,no']],
   approvals: [['title','Request title','text',1],['category','Category','select:Purchase,Operational,Contract,Payment,Other'],['requester','Requester','text',1],['approver','Approver','text',1],['second_approver','Second approver (optional)'],['amount','Amount','number'],['currency','Currency'],['rationale','Business rationale','area']],
   quotations: [['rfq','RFQ / reference','text',1],['supplier','Supplier','text',1],['item','Item / description','text',1],['quantity','Quantity','number'],['unit_price','Unit price','number',1],['currency','Currency'],['lead_days','Lead days','number'],['terms','Commercial terms','area']],
@@ -93,6 +96,7 @@ const RES = {
   tasks:   { noun: 'task', title: r => r.title, sub: r => [r.department, r.owner].filter(Boolean).join(' · ') || 'Unassigned', status: 'status', statuses: ST, drag: true, date: 'due_date', priority: 'priority', views: ['board', 'cards', 'table'] },
   contracts: { noun: 'contract', title: r => r.contract, sub: r => [r.counterparty, r.owner].filter(Boolean).join(' · '), body: r => r.obligation, status: 'status', statuses: ST, drag: true, date: 'due_date', views: ['board', 'cards', 'table'] },
   approvals: { noun: 'request', title: r => r.title, sub: r => `${person(r.requester)} → ${[r.approver, r.second_approver].filter(Boolean).map(person).join(' → ')}`, body: r => r.rationale, status: 'status', statuses: ['pending', 'approved', 'rejected', 'withdrawn'], money: r => [r.amount, r.currency], chips: r => [r.category, r.steps && r.steps.length > 1 ? r.progress : '', r.covering ? 'covering for ' + person(r.awaiting) : '', r.previous_id ? 'resubmission of #' + r.previous_id : ''], views: ['board', 'cards', 'table'] },
+  assets: { noun: 'asset', title: r => r.name, sub: r => [r.tag, r.location, r.owner].filter(Boolean).join(' · '), body: r => r.notes, status: 'state', statuses: ['in_service', 'maintenance', 'retired'], date: 'next_service', views: ['cards', 'table'] },
   recurring_tasks: { noun: 'template', title: r => r.title, sub: r => [r.department, r.owner].filter(Boolean).join(' · ') || 'Unassigned', status: 'active', priority: 'priority', chips: r => [r.frequency, 'next ' + r.next_due], views: ['cards', 'table'] },
   quotations: { noun: 'quote', title: r => r.item, sub: r => `${r.rfq} · ${r.supplier}`, body: r => r.terms, money: r => [r.unit_price, r.currency + ' / unit'], chips: r => ['qty ' + r.quantity, r.lead_days ? r.lead_days + 'd lead' : ''], views: ['cards', 'table'] },
   tariffs: { noun: 'rate', title: r => r.service, sub: r => 'Customer: ' + (r.customer || '*'), money: r => [r.rate, `${r.currency || ''} / ${r.unit || 'unit'}`], chips: r => [r.effective_from ? 'from ' + r.effective_from : ''], views: ['cards', 'table'] },
@@ -304,13 +308,13 @@ async function calendarView() {
   const now = new Date();
   if (!calMonth) calMonth = { y: now.getFullYear(), m: now.getMonth() };
   const { y, m } = calMonth;
-  const [tasks, contracts] = await Promise.all([api('tasks'), api('contracts')]);
-  const items = [...tasks.map(r => ({ r, k: 'tasks', t: r.title })), ...contracts.map(r => ({ r, k: 'contracts', t: r.contract }))].filter(x => x.r.due_date);
+  const [tasks, contracts, assets] = await Promise.all([api('tasks'), api('contracts'), api('assets')]);
+  const items = [...tasks.map(r => ({ r, k: 'tasks', t: r.title })), ...contracts.map(r => ({ r, k: 'contracts', t: r.contract })), ...assets.filter(a => a.state !== 'retired' && a.next_service).map(a => ({ r: { ...a, due_date: a.next_service }, k: 'assets', t: 'Service: ' + a.name }))].filter(x => x.r.due_date);
   window._cal = items;
   const byDay = {};
   items.forEach(x => (byDay[x.r.due_date] = byDay[x.r.due_date] || []).push(x));
   const today = isoToday(), iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const chip = x => `<button class="calchip ${x.k === 'contracts' ? 'contract' : ''} ${x.r.status === 'done' ? 'done' : x.r.due_date < today ? 'late' : ''}" data-act="calopen" data-k="${x.k}" data-id="${x.r.id}" title="${esc(x.t)} (${esc(human(x.r.status))})">${esc(x.t)}</button>`;
+  const chip = x => `<button class="calchip ${x.k !== 'tasks' ? 'contract' : ''} ${x.r.status === 'done' ? 'done' : x.r.due_date < today ? 'late' : ''}" data-act="calopen" data-k="${x.k}" data-id="${x.r.id}" title="${esc(x.t)} (${esc(human(x.r.status || x.r.state))})">${esc(x.t)}</button>`;
   const first = new Date(y, m, 1), start = new Date(y, m, 1 - ((first.getDay() + 6) % 7));       // weeks start on Monday
   const cells = [];
   for (let i = 0; i < 42; i++) {
@@ -377,7 +381,7 @@ const COMMENTABLE = ['tasks', 'approvals', 'contracts'];
 const commentBtn = (key, r) => (COMMENTABLE.includes(key) ? `<button class="ln" data-act="comments" data-id="${r.id}">${commentCounts[r.id] || fileCounts[r.id] ? [commentCounts[r.id] ? `Comments (${commentCounts[r.id]})` : '', fileCounts[r.id] ? `Files (${fileCounts[r.id]})` : ''].filter(Boolean).join(' · ') : 'Comment'}</button>` : '');
 
 /* ---------- bulk selection ---------- */
-const BULK = { tasks: ['status', 'delete'], contracts: ['status', 'delete'], exceptions: ['status'], quotations: ['delete'], tariffs: ['delete'], transactions: ['delete'], recurring_tasks: ['delete'] };
+const BULK = { tasks: ['status', 'delete'], contracts: ['status', 'delete'], exceptions: ['status'], quotations: ['delete'], tariffs: ['delete'], transactions: ['delete'], recurring_tasks: ['delete'], assets: ['delete'] };
 const bulkOps = key => (BULK[key] || []).filter(o => (o === 'status' ? can.write : can.del));
 let selectMode = false, picked = new Set(), shownIds = [], repaintRecords = null;
 const pickBox = (key, r, cfg) => (selectMode ? `<label class="pick"><input type="checkbox" class="pickbox" data-id="${r.id}" ${picked.has(r.id) ? 'checked' : ''} aria-label="Select ${esc(cfg.title ? cfg.title(r) : r.id)}"></label>` : '');

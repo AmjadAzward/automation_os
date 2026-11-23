@@ -17,6 +17,7 @@ def add_row(table,row,dry_run=False):
       'tariffs':(['service','customer','currency','rate','unit','effective_from'],['service','rate']),
       'transactions':(['ref','service','customer','billed','units','currency','date'],['ref','service','customer','billed'])
       ,'recurring_tasks':(['title','department','owner','priority','frequency','next_due','active'],['title','frequency','next_due'])
+      ,'assets':(['name','tag','location','owner','state','next_service','notes'],['name','tag'])
       ,'approvals':(['title','category','requester','approver','second_approver','amount','currency','rationale','previous_id'],['title','requester','approver'])
     }
     if table not in spec:raise ValueError('Invalid resource')
@@ -26,6 +27,7 @@ def add_row(table,row,dry_run=False):
         if not str(payload.get(k,'')).strip():raise ValueError(f'Missing: {k}')
     if table=='tasks' and payload.get('status','open') not in config.STATUSES:raise ValueError('Bad status')
     if table=='contracts' and payload.get('status','open') not in config.STATUSES:raise ValueError('Bad status')
+    if table=='assets' and payload.get('state','in_service') not in config.ASSET_STATES:raise ValueError('State must be in_service, maintenance or retired')
     if table=='recurring_tasks' and payload.get('frequency') not in ('daily','weekly','monthly'):raise ValueError('Frequency must be daily, weekly or monthly')
     if table=='approvals':
         for k in ('amount','currency','category'):
@@ -37,7 +39,7 @@ def add_row(table,row,dry_run=False):
     if table=='quotations':money(payload['unit_price']);payload['quantity']=float(payload.get('quantity') or 1)
     if table=='tariffs':money(payload['rate']);payload.setdefault('customer','*')
     if table=='transactions':money(payload['billed']);money(payload.get('units','1'))
-    for date_field in ('due_date','next_due'):
+    for date_field in ('due_date','next_due','next_service'):
         if date_field in payload and payload[date_field] and not re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(payload[date_field])):raise ValueError('Date must be YYYY-MM-DD')
     if dry_run:return {'valid':True}
     if table != 'tariffs':payload['created_at']=now()
@@ -65,6 +67,7 @@ def update_row(table,ident,row):
       'tariffs':['service','customer','currency','rate','unit','effective_from'],
       'transactions':['ref','service','customer','billed','units','currency','date'],
       'recurring_tasks':['title','department','owner','priority','frequency','next_due','active'],
+      'assets':['name','tag','location','owner','state','next_service','notes'],
       'approvals':['title','category','requester','approver','second_approver','amount','currency','rationale']
     }
     if table not in spec:raise ValueError('Invalid resource')
@@ -80,7 +83,12 @@ def update_row(table,ident,row):
         if 'amount' in payload:payload['amount']=str(money(payload['amount']))
         for k in ('title','requester','approver'):
             if k in payload and not str(payload[k]).strip():raise ValueError(f'Missing: {k}')
-    if 'due_date' in payload and payload['due_date'] and not re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(payload['due_date'])):raise ValueError('Date must be YYYY-MM-DD')
+    for date_field in ('due_date','next_service'):
+        if date_field in payload and payload[date_field] and not re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(payload[date_field])):raise ValueError('Date must be YYYY-MM-DD')
+    if table=='assets':
+        if 'state' in payload and payload['state'] not in config.ASSET_STATES:raise ValueError('State must be in_service, maintenance or retired')
+        for k in ('name','tag'):
+            if k in payload and not str(payload[k]).strip():raise ValueError(f'Missing: {k}')
     with config.LOCK,db() as c:
         existing=c.execute(f'SELECT * FROM {table} WHERE id=?',(ident,)).fetchone()
         if not existing:raise ValueError('Record not found')
@@ -96,7 +104,7 @@ def update_row(table,ident,row):
     return {'ok':True}
 
 def delete_row(table,ident):
-    if table not in ('tasks','quotations','contracts','tariffs','transactions','recurring_tasks','approvals'):raise ValueError('Invalid resource')
+    if table not in ('tasks','quotations','contracts','tariffs','transactions','recurring_tasks','assets','approvals'):raise ValueError('Invalid resource')
     with config.LOCK,db() as c:
         row=c.execute(f'SELECT * FROM {table} WHERE id=?',(ident,)).fetchone()
         if not row:raise ValueError('Record not found')
@@ -121,7 +129,7 @@ def bulk_exception_status(ids,status):
 
 BULK_STATUS_TABLES=('tasks','contracts','exceptions')
 
-BULK_DELETE_TABLES=('tasks','contracts','quotations','tariffs','transactions','recurring_tasks')
+BULK_DELETE_TABLES=('tasks','contracts','quotations','tariffs','transactions','recurring_tasks','assets')
 
 def bulk_action(table,ids,action,status=None):
     """Change the status of, or delete, many records at once. Approvals are excluded: they have their own rules."""
@@ -145,7 +153,7 @@ def bulk_action(table,ids,action,status=None):
     if table not in TRASHABLE:unlink_stored(gone)
     return {'ok':True,'affected':cur.rowcount}
 
-SEARCH_SPEC={'tasks':('title','owner',['title','department','owner']),'approvals':('title','requester',['title','requester','approver','rationale']),'contracts':('contract','counterparty',['contract','counterparty','obligation','owner']),'quotations':('item','supplier',['item','supplier','rfq']),'tariffs':('service','customer',['service','customer']),'transactions':('ref','customer',['ref','service','customer']),'recurring_tasks':('title','owner',['title','owner','department']),'exceptions':('entity','kind',['entity','details'])}
+SEARCH_SPEC={'assets':('name','tag',['name','tag','location','owner']),'tasks':('title','owner',['title','department','owner']),'approvals':('title','requester',['title','requester','approver','rationale']),'contracts':('contract','counterparty',['contract','counterparty','obligation','owner']),'quotations':('item','supplier',['item','supplier','rfq']),'tariffs':('service','customer',['service','customer']),'transactions':('ref','customer',['ref','service','customer']),'recurring_tasks':('title','owner',['title','owner','department']),'exceptions':('entity','kind',['entity','details'])}
 
 def search(q):
     q=str(q or '').strip()
@@ -159,7 +167,7 @@ def search(q):
                 out.append({'table':table,'id':r['id'],'title':r['title'],'sub':r['sub'] or ''})
     return out[:30]
 
-DEDUPE_KEYS={'tasks':('title','due_date','owner'),'contracts':('contract','obligation','due_date'),'quotations':('rfq','supplier','item'),'tariffs':('service','customer','effective_from'),'transactions':('ref',),'recurring_tasks':('title','frequency'),'approvals':('title','requester','amount')}
+DEDUPE_KEYS={'assets':('tag',),'tasks':('title','due_date','owner'),'contracts':('contract','obligation','due_date'),'quotations':('rfq','supplier','item'),'tariffs':('service','customer','effective_from'),'transactions':('ref',),'recurring_tasks':('title','frequency'),'approvals':('title','requester','amount')}
 def _fingerprint(row,keys):return tuple(str(row.get(k) or '').strip().lower() for k in keys)
 
 def import_csv(table,content,dry_run=False,skip_duplicates=True):

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS exceptions(id INTEGER PRIMARY KEY AUTOINCREMENT,finge
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,action TEXT NOT NULL,entity TEXT NOT NULL,details TEXT NOT NULL,at TEXT NOT NULL,actor TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS automation_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,started_at TEXT NOT NULL,finished_at TEXT NOT NULL,detected INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL DEFAULT 0,resolved INTEGER NOT NULL DEFAULT 0,trigger TEXT NOT NULL DEFAULT 'manual');
+CREATE TABLE IF NOT EXISTS assets(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,tag TEXT NOT NULL,location TEXT DEFAULT '',owner TEXT DEFAULT '',state TEXT NOT NULL DEFAULT 'in_service',next_service TEXT DEFAULT '',notes TEXT DEFAULT '',created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS recurring_tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,department TEXT NOT NULL DEFAULT 'General',owner TEXT DEFAULT '',priority TEXT NOT NULL DEFAULT 'medium',frequency TEXT NOT NULL DEFAULT 'weekly',next_due TEXT NOT NULL,active TEXT NOT NULL DEFAULT 'yes',created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS approvals(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'Operational',requester TEXT DEFAULT '',approver TEXT DEFAULT '',amount TEXT DEFAULT '0',currency TEXT NOT NULL DEFAULT 'USD',rationale TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'pending',decision_comment TEXT DEFAULT '',created_at TEXT NOT NULL,decided_at TEXT DEFAULT '',second_approver TEXT DEFAULT '',previous_id INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS approval_steps(id INTEGER PRIMARY KEY AUTOINCREMENT,approval_id INTEGER NOT NULL,stage INTEGER NOT NULL,approver TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',comment TEXT DEFAULT '',decided_by TEXT DEFAULT '',decided_at TEXT DEFAULT '',acting_for TEXT DEFAULT '');
@@ -75,7 +76,7 @@ def audit(c,action,entity,details):
     c.execute('INSERT INTO audit(action,entity,details,at,actor) VALUES(?,?,?,?,?)',(action,entity,json.dumps(details,ensure_ascii=False),now(),actor()))
 
 def read_table(table,limit=500):
-    if table not in ('tasks','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs','recurring_tasks','approvals','approval_steps','comments','attachments'):raise ValueError('Invalid resource')
+    if table not in ('tasks','quotations','contracts','tariffs','transactions','exceptions','audit','automation_runs','recurring_tasks','assets','approvals','approval_steps','comments','attachments'):raise ValueError('Invalid resource')
     with db() as c:return [dict(x) for x in c.execute(f'SELECT * FROM {table} ORDER BY id DESC LIMIT ?', (min(max(limit,1),3000),))]
 
 CTX=threading.local()

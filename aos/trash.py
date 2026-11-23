@@ -5,7 +5,7 @@ from . import config
 from .db import actor, audit, db, now
 from .attachments import STORED_RE, unlink_stored
 
-TRASHABLE = {'tasks': 'title', 'contracts': 'contract', 'quotations': 'item', 'tariffs': 'service', 'transactions': 'ref', 'recurring_tasks': 'title'}
+TRASHABLE = {'tasks': 'title', 'contracts': 'contract', 'quotations': 'item', 'tariffs': 'service', 'transactions': 'ref', 'recurring_tasks': 'title', 'assets': 'name'}
 KEEP_DAYS = 30
 
 
